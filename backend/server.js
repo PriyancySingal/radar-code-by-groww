@@ -164,12 +164,19 @@ const server = http.createServer(async (req, res) => {
     const st = symbolState.get(symbol);
     if (!st) return sendJSON(res, 404, { error: "Unknown symbol" });
     return sendJSON(res, 200, {
-      symbol,
-      score: st.attention.score,
-      band: st.attention.band,
-      evidence: st.attention.evidence,
-      components: st.attention.components,
-    });
+  symbol,
+  name: st.meta.name,
+  sector: st.meta.sector,
+  price: Number(st.price.toFixed(2)),
+  score: st.attention.score,
+  band: st.attention.band,
+  evidence: st.attention.evidence,
+  components: st.attention.components,
+  history: st.history.slice(-40),
+  weekHigh: Number(st.weekHigh.toFixed(2)),
+  weekLow: Number(st.weekLow.toFixed(2)),
+  volume: st.lastVolume,
+});
   }
 
   // ---- POST /api/simulate/shock  { symbol, direction, magnitude } ----

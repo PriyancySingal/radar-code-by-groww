@@ -84,8 +84,17 @@
           <span id="explainScore" class="score-badge"></span>
         </div>
         <div id="explainBand" class="explain-band"></div>
-        <ul id="explainEvidence" class="explain-evidence"></ul>
-        <div class="explain-components" id="explainComponents"></div>
+
+<div class="sparkline-section">
+  <div class="sparkline-header">
+    <span>PRICE HISTORY</span>
+    <span id="sparklineRange"></span>
+  </div>
+  <svg id="priceSparkline" class="price-sparkline" viewBox="0 0 360 100" preserveAspectRatio="none"></svg>
+</div>
+
+<ul id="explainEvidence" class="explain-evidence"></ul>
+<div class="explain-components" id="explainComponents"></div>
       </div>
     </div>
 
