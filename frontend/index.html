@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Radar &middot; Code by Groww</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark" aria-hidden="true"></span>
+    <div class="brand-text">
+      <span class="brand-name">RADAR</span>
+      <span class="brand-sub">what changed while you were away</span>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <div class="conn-status" id="connStatus"><span class="dot"></span> connecting&hellip;</div>
+  </div>
+</header>
+
+<div id="digestBanner" class="digest-banner hidden">
+  <div class="digest-banner-main">
+    <strong id="digestCount">0</strong>
+    <span id="digestText">stocks moved outside their normal range while you were away</span>
+  </div>
+  <div class="digest-banner-list" id="digestList"></div>
+  <button class="btn btn-ghost" id="digestDismiss">Mark all as seen</button>
+</div>
+
+<div id="calmBanner" class="calm-banner hidden">
+  <span id="calmText">All caught up &mdash; nothing needs you right now.</span>
+</div>
+
+<main class="layout">
+
+  <section class="radar-pane">
+    <div class="pane-header">
+      <div class="view-toggle">
+        <button class="toggle-btn active" data-view="radar">Radar</button>
+        <button class="toggle-btn" data-view="list">List</button>
+      </div>
+      <div class="legend">
+        <span class="legend-item"><i class="dot dot-high"></i>High attention</span>
+        <span class="legend-item"><i class="dot dot-important"></i>Important</span>
+        <span class="legend-item"><i class="dot dot-watch"></i>Worth watching</span>
+        <span class="legend-item"><i class="dot dot-normal"></i>Normal</span>
+      </div>
+    </div>
+
+    <div id="radarView" class="radar-view">
+      <svg id="radarSvg" viewBox="0 0 600 600" preserveAspectRatio="xMidYMid meet"></svg>
+    </div>
+
+    <div id="listView" class="list-view hidden">
+      <table class="watch-table">
+        <thead>
+          <tr><th>Symbol</th><th>Sector</th><th class="num">Price</th><th class="num">Chg</th><th class="num">Score</th><th>Status</th></tr>
+        </thead>
+        <tbody id="watchTableBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <aside class="side-pane">
+    <div class="panel">
+      <h2>Watchlist</h2>
+      <div class="add-row">
+        <input id="addSymbolInput" list="symbolOptions" placeholder="Add symbol (e.g. INFY)" autocomplete="off" />
+        <datalist id="symbolOptions"></datalist>
+        <button class="btn btn-primary" id="addSymbolBtn">Add</button>
+      </div>
+      <ul class="watch-chip-list" id="watchChipList"></ul>
+    </div>
+
+    <div class="panel" id="explainPanel">
+      <h2>Why this signal?</h2>
+      <div id="explainEmpty" class="explain-empty">Click a blip on the radar &mdash; or a row in the list &mdash; to see the evidence behind its score.</div>
+      <div id="explainContent" class="explain-content hidden">
+        <div class="explain-title">
+          <span id="explainSymbol"></span>
+          <span id="explainScore" class="score-badge"></span>
+        </div>
+        <div id="explainBand" class="explain-band"></div>
+        <ul id="explainEvidence" class="explain-evidence"></ul>
+        <div class="explain-components" id="explainComponents"></div>
+      </div>
+    </div>
+
+    <div class="panel demo-panel">
+      <h2>Demo control</h2>
+      <p class="demo-note">Market data is a live simulator so this always demos reliably, on or off market hours. Trigger a shock to show the system detect it in real time.</p>
+      <div class="demo-row">
+        <select id="shockSymbol"></select>
+        <select id="shockDirection">
+          <option value="up">Spike up</option>
+          <option value="down">Spike down</option>
+        </select>
+        <button class="btn btn-signal" id="shockBtn">Trigger shock</button>
+      </div>
+    </div>
+  </aside>
+
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>
