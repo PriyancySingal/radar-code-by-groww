@@ -33,7 +33,7 @@
 
   // ---------------- API helpers ----------------
 
-  async function api(path, opts) {
+  async function api(path, opts = {}) {
     const res = await fetch(API + path, opts);
 
     if (!res.ok) {
@@ -56,14 +56,11 @@
   }
 
   function radiusForScore(score) {
-    // Higher score => closer to center.
-    // Keep a minimum radius so nothing sits on top of the origin.
-
+    // Higher score = closer to radar center.
     const maxR = 250;
     const minR = 40;
 
-    const t =
-      Math.max(0, Math.min(100, score)) / 100;
+    const t = Math.max(0, Math.min(100, score)) / 100;
 
     return maxR - t * (maxR - minR);
   }
@@ -91,19 +88,22 @@
 
     // Rings
     [250, 187, 125, 62].forEach((r, i) => {
-      const c = document.createElementNS(NS, "circle");
+      const circle = document.createElementNS(NS, "circle");
 
-      c.setAttribute("cx", cx);
-      c.setAttribute("cy", cy);
-      c.setAttribute("r", r);
-      c.setAttribute("fill", "none");
-      c.setAttribute("stroke", "var(--grid)");
-      c.setAttribute(
+      circle.setAttribute("cx", cx);
+      circle.setAttribute("cy", cy);
+      circle.setAttribute("r", r);
+      circle.setAttribute("fill", "none");
+      circle.setAttribute(
+        "stroke",
+        "var(--grid)"
+      );
+      circle.setAttribute(
         "stroke-width",
         i === 0 ? 1.4 : 1
       );
 
-      radarSvg.appendChild(c);
+      radarSvg.appendChild(circle);
     });
 
     // Cross-hairs
@@ -111,19 +111,19 @@
       [cx - 250, cy, cx + 250, cy],
       [cx, cy - 250, cx, cy + 250],
     ].forEach(([x1, y1, x2, y2]) => {
-      const l = document.createElementNS(NS, "line");
+      const line = document.createElementNS(NS, "line");
 
-      l.setAttribute("x1", x1);
-      l.setAttribute("y1", y1);
-      l.setAttribute("x2", x2);
-      l.setAttribute("y2", y2);
-      l.setAttribute(
+      line.setAttribute("x1", x1);
+      line.setAttribute("y1", y1);
+      line.setAttribute("x2", x2);
+      line.setAttribute("y2", y2);
+      line.setAttribute(
         "stroke",
         "var(--grid-soft)"
       );
-      l.setAttribute("stroke-width", 1);
+      line.setAttribute("stroke-width", 1);
 
-      radarSvg.appendChild(l);
+      radarSvg.appendChild(line);
     });
 
     // Sweep wedge
@@ -280,9 +280,9 @@
         "blip"
       );
 
-      g.dataset.symbol =
-        st.symbol;
+      g.dataset.symbol = st.symbol;
 
+      // Attention ring
       if (st.band !== "NORMAL") {
         const ring =
           document.createElementNS(
@@ -307,9 +307,7 @@
 
         ring.setAttribute(
           "r",
-          radiusForBlip(
-            st.score
-          ) + 6
+          radiusForBlip(st.score) + 6
         );
 
         ring.setAttribute(
@@ -325,6 +323,7 @@
         g.appendChild(ring);
       }
 
+      // Core blip
       const core =
         document.createElementNS(
           NS,
@@ -348,9 +347,7 @@
 
       core.setAttribute(
         "r",
-        radiusForBlip(
-          st.score
-        )
+        radiusForBlip(st.score)
       );
 
       core.setAttribute(
@@ -360,6 +357,7 @@
 
       g.appendChild(core);
 
+      // Symbol label
       const label =
         document.createElementNS(
           NS,
@@ -379,9 +377,7 @@
       label.setAttribute(
         "y",
         y -
-          radiusForBlip(
-            st.score
-          ) -
+          radiusForBlip(st.score) -
           6
       );
 
@@ -390,17 +386,13 @@
         "middle"
       );
 
-      label.textContent =
-        st.symbol;
+      label.textContent = st.symbol;
 
       g.appendChild(label);
 
       g.addEventListener(
         "click",
-        () =>
-          showExplain(
-            st.symbol
-          )
+        () => showExplain(st.symbol)
       );
 
       layer.appendChild(g);
@@ -414,15 +406,17 @@
 
     const sorted =
       [...items.values()].sort(
-        (a, b) =>
-          b.score - a.score
+        (a, b) => b.score - a.score
       );
 
     for (const st of sorted) {
       const tr =
-        document.createElement(
-          "tr"
-        );
+        document.createElement("tr");
+
+      const change =
+        st.changePct !== undefined
+          ? `${st.changePct.toFixed(2)}%`
+          : "—";
 
       tr.innerHTML = `
         <td style="font-family:var(--mono); font-weight:600;">
@@ -438,14 +432,7 @@
         </td>
 
         <td class="num">
-          ${
-            st.changePct !==
-            undefined
-              ? st.changePct.toFixed(
-                  2
-                ) + "%"
-              : "&mdash;"
-          }
+          ${change}
         </td>
 
         <td class="num">
@@ -454,17 +441,14 @@
 
         <td>
           <span class="status-pill pill-${st.band}">
-            ${BAND_LABEL[st.band]}
+            ${BAND_LABEL[st.band] || st.band}
           </span>
         </td>
       `;
 
       tr.addEventListener(
         "click",
-        () =>
-          showExplain(
-            st.symbol
-          )
+        () => showExplain(st.symbol)
       );
 
       listBody.appendChild(tr);
@@ -478,18 +462,17 @@
 
     for (const st of items.values()) {
       const li =
-        document.createElement(
-          "li"
-        );
+        document.createElement("li");
 
-      li.className =
-        "watch-chip";
+      li.className = "watch-chip";
 
       li.innerHTML = `
         ${st.symbol}
+
         <button
           class="remove-btn"
           title="Remove"
+          type="button"
         >
           &times;
         </button>
@@ -502,24 +485,49 @@
         async (e) => {
           e.stopPropagation();
 
-          await api(
-            `/api/watchlist/${USER_ID}/${st.symbol}`,
-            {
-              method: "DELETE",
+          try {
+            await api(
+              `/api/watchlist/${USER_ID}/${st.symbol}`,
+              {
+                method: "DELETE",
+              }
+            );
+
+            items.delete(st.symbol);
+
+            if (
+              selectedSymbol === st.symbol
+            ) {
+              selectedSymbol = null;
+
+              document
+                .getElementById(
+                  "explainEmpty"
+                )
+                .classList.remove(
+                  "hidden"
+                );
+
+              document
+                .getElementById(
+                  "explainContent"
+                )
+                .classList.add(
+                  "hidden"
+                );
             }
-          );
 
-          items.delete(
-            st.symbol
-          );
-
-          renderAll();
+            renderAll();
+          } catch (error) {
+            console.error(
+              "Remove failed:",
+              error
+            );
+          }
         }
       );
 
-      watchChipList.appendChild(
-        li
-      );
+      watchChipList.appendChild(li);
     }
   }
 
@@ -566,19 +574,14 @@
       history
         .map((point) => {
           if (
-            typeof point ===
-            "number"
+            typeof point === "number"
           ) {
             return point;
           }
 
-          return Number(
-            point.price
-          );
+          return Number(point.price);
         })
-        .filter(
-          Number.isFinite
-        );
+        .filter(Number.isFinite);
 
     if (values.length < 2) {
       if (rangeLabel) {
@@ -593,42 +596,29 @@
     const height = 100;
     const padding = 8;
 
-    const min =
-      Math.min(...values);
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const spread = max - min || 1;
 
-    const max =
-      Math.max(...values);
+    const points = values.map(
+      (value, index) => {
+        const x =
+          padding +
+          (index /
+            (values.length - 1)) *
+            (width - padding * 2);
 
-    const spread =
-      max - min || 1;
+        const y =
+          height -
+          padding -
+          ((value - min) / spread) *
+            (height - padding * 2);
 
-    const points =
-      values.map(
-        (value, index) => {
-          const x =
-            padding +
-            (index /
-              (values.length -
-                1)) *
-              (width -
-                padding * 2);
-
-          const y =
-            height -
-            padding -
-            ((value - min) /
-              spread) *
-              (height -
-                padding * 2);
-
-          return `${x.toFixed(
-            1
-          )},${y.toFixed(1)}`;
-        }
-      );
+        return `${x.toFixed(1)},${y.toFixed(1)}`;
+      }
+    );
 
     // Line
-
     const line =
       document.createElementNS(
         "http://www.w3.org/2000/svg",
@@ -668,7 +658,6 @@
     svg.appendChild(line);
 
     // Current price marker
-
     const last =
       points[
         points.length - 1
@@ -700,16 +689,11 @@
       "var(--sweep)"
     );
 
-    svg.appendChild(
-      marker
-    );
+    svg.appendChild(marker);
 
     // Current price text
-
     const lastValue =
-      values[
-        values.length - 1
-      ];
+      values[values.length - 1];
 
     const priceLabel =
       document.createElementNS(
@@ -753,25 +737,18 @@
     priceLabel.textContent =
       lastValue.toFixed(2);
 
-    svg.appendChild(
-      priceLabel
-    );
+    svg.appendChild(priceLabel);
 
     if (rangeLabel) {
       rangeLabel.textContent =
-        `${min.toFixed(
-          0
-        )} — ${max.toFixed(0)}`;
+        `${min.toFixed(0)} — ${max.toFixed(0)}`;
     }
   }
 
   // ---------------- Explainability panel ----------------
 
-  async function showExplain(
-    symbol
-  ) {
-    selectedSymbol =
-      symbol;
+  async function showExplain(symbol) {
+    selectedSymbol = symbol;
 
     try {
       const data =
@@ -783,9 +760,7 @@
         .getElementById(
           "explainEmpty"
         )
-        .classList.add(
-          "hidden"
-        );
+        .classList.add("hidden");
 
       const content =
         document.getElementById(
@@ -798,47 +773,33 @@
 
       document.getElementById(
         "explainSymbol"
-      ).textContent =
-        data.symbol;
+      ).textContent = data.symbol;
 
       document.getElementById(
         "explainScore"
-      ).textContent =
-        data.score;
+      ).textContent = data.score;
 
       document.getElementById(
         "explainBand"
       ).textContent =
-        BAND_LABEL[
-          data.band
-        ] || data.band;
+        BAND_LABEL[data.band] ||
+        data.band;
 
-      // NEW:
-      // Render recent price history
-      // inside the explainability panel.
-      renderSparkline(
-        data.history
-      );
+      renderSparkline(data.history);
 
       const evidenceList =
         document.getElementById(
           "explainEvidence"
         );
 
-      evidenceList.innerHTML =
-        "";
+      evidenceList.innerHTML = "";
 
       if (
-        !Array.isArray(
-          data.evidence
-        ) ||
-        data.evidence.length ===
-          0
+        !Array.isArray(data.evidence) ||
+        data.evidence.length === 0
       ) {
         const li =
-          document.createElement(
-            "li"
-          );
+          document.createElement("li");
 
         li.style.borderLeftColor =
           "var(--grid)";
@@ -849,22 +810,15 @@
         li.textContent =
           "Behaving normally — nothing in its current move is statistically unusual.";
 
-        evidenceList.appendChild(
-          li
-        );
+        evidenceList.appendChild(li);
       } else {
         for (const ev of data.evidence) {
           const li =
-            document.createElement(
-              "li"
-            );
+            document.createElement("li");
 
-          li.textContent =
-            ev.text;
+          li.textContent = ev.text;
 
-          evidenceList.appendChild(
-            li
-          );
+          evidenceList.appendChild(li);
         }
       }
 
@@ -876,25 +830,14 @@
       comps.innerHTML = "";
 
       const labels = {
-        priceComponent:
-          "price",
-
-        volumeComponent:
-          "volume",
-
-        divergenceComponent:
-          "divergence",
-
-        dormancyComponent:
-          "dormancy",
-
-        thresholdComponent:
-          "threshold",
+        priceComponent: "price",
+        volumeComponent: "volume",
+        divergenceComponent: "divergence",
+        dormancyComponent: "dormancy",
+        thresholdComponent: "threshold",
       };
 
-      if (
-        data.components
-      ) {
+      if (data.components) {
         for (const [
           key,
           val,
@@ -912,9 +855,7 @@
           chip.textContent =
             `${labels[key] || key} +${val}`;
 
-          comps.appendChild(
-            chip
-          );
+          comps.appendChild(chip);
         }
       }
     } catch (error) {
@@ -928,83 +869,99 @@
   // ---------------- Digest / calm state ----------------
 
   async function loadDigest() {
-    const data =
-      await api(
-        `/api/digest/${USER_ID}`
-      );
-
-    const banner =
-      document.getElementById(
-        "digestBanner"
-      );
-
-    const calm =
-      document.getElementById(
-        "calmBanner"
-      );
-
-    if (data.count > 0) {
-      document.getElementById(
-        "digestCount"
-      ).textContent =
-        data.count;
-
-      document.getElementById(
-        "digestText"
-      ).textContent =
-        data.count === 1
-          ? "stock moved outside its normal range while you were away"
-          : "stocks moved outside their normal range while you were away";
-
-      const list =
-        document.getElementById(
-          "digestList"
+    try {
+      const data =
+        await api(
+          `/api/digest/${USER_ID}`
         );
 
-      list.innerHTML = "";
+      const banner =
+        document.getElementById(
+          "digestBanner"
+        );
 
-      for (const ch of data.changes.slice(
-        0,
-        5
-      )) {
-        const div =
-          document.createElement(
-            "div"
+      const calm =
+        document.getElementById(
+          "calmBanner"
+        );
+
+      if (data.count > 0) {
+        document.getElementById(
+          "digestCount"
+        ).textContent = data.count;
+
+        document.getElementById(
+          "digestText"
+        ).textContent =
+          data.count === 1
+            ? "stock moved outside its normal range while you were away"
+            : "stocks moved outside their normal range while you were away";
+
+        const list =
+          document.getElementById(
+            "digestList"
           );
 
-        div.className =
-          "digest-item";
+        list.innerHTML = "";
 
-        div.innerHTML =
-          `<strong>${ch.symbol}</strong> &mdash; ${ch.narrative}`;
+        for (const ch of data.changes.slice(
+          0,
+          5
+        )) {
+          const div =
+            document.createElement(
+              "div"
+            );
 
-        list.appendChild(
-          div
+          div.className =
+            "digest-item";
+
+          const strong =
+            document.createElement(
+              "strong"
+            );
+
+          strong.textContent =
+            ch.symbol;
+
+          div.appendChild(strong);
+
+          div.appendChild(
+            document.createTextNode(
+              ` — ${ch.narrative}`
+            )
+          );
+
+          list.appendChild(div);
+        }
+
+        banner.classList.remove(
+          "hidden"
+        );
+
+        calm.classList.add(
+          "hidden"
+        );
+      } else {
+        banner.classList.add(
+          "hidden"
+        );
+
+        const count = items.size;
+
+        document.getElementById(
+          "calmText"
+        ).textContent =
+          `${count} stocks reviewed — nothing needs you right now.`;
+
+        calm.classList.remove(
+          "hidden"
         );
       }
-
-      banner.classList.remove(
-        "hidden"
-      );
-
-      calm.classList.add(
-        "hidden"
-      );
-    } else {
-      banner.classList.add(
-        "hidden"
-      );
-
-      const count =
-        items.size;
-
-      document.getElementById(
-        "calmText"
-      ).textContent =
-        `${count} stocks reviewed \u2014 nothing needs you right now.`;
-
-      calm.classList.remove(
-        "hidden"
+    } catch (error) {
+      console.error(
+        "Digest request failed:",
+        error
       );
     }
   }
@@ -1016,22 +973,29 @@
     .addEventListener(
       "click",
       async () => {
-        await api(
-          `/api/checkin/${USER_ID}`,
-          {
-            method: "POST",
-          }
-        );
-
-        document
-          .getElementById(
-            "digestBanner"
-          )
-          .classList.add(
-            "hidden"
+        try {
+          await api(
+            `/api/checkin/${USER_ID}`,
+            {
+              method: "POST",
+            }
           );
 
-        loadDigest();
+          document
+            .getElementById(
+              "digestBanner"
+            )
+            .classList.add(
+              "hidden"
+            );
+
+          await loadDigest();
+        } catch (error) {
+          console.error(
+            "Check-in failed:",
+            error
+          );
+        }
       }
     );
 
@@ -1046,10 +1010,7 @@
     items.clear();
 
     for (const it of data.items) {
-      items.set(
-        it.symbol,
-        it
-      );
+      items.set(it.symbol, it);
     }
 
     renderAll();
@@ -1095,12 +1056,10 @@
         `/api/watchlist/${USER_ID}`,
         {
           method: "POST",
-
           headers: {
             "Content-Type":
               "application/json",
           },
-
           body: JSON.stringify({
             symbol,
           }),
@@ -1110,7 +1069,13 @@
       input.value = "";
 
       await loadWatchlist();
-    } catch (e) {
+    } catch (error) {
+      console.error(
+        "Add symbol failed:",
+        error
+      );
+
+      input.value = "";
       input.placeholder =
         "Unknown symbol — try again";
     }
@@ -1119,9 +1084,7 @@
   // ---------------- View toggle ----------------
 
   document
-    .querySelectorAll(
-      ".toggle-btn"
-    )
+    .querySelectorAll(".toggle-btn")
     .forEach((btn) => {
       btn.addEventListener(
         "click",
@@ -1149,8 +1112,7 @@
             )
             .classList.toggle(
               "hidden",
-              currentView !==
-                "radar"
+              currentView !== "radar"
             );
 
           document
@@ -1159,8 +1121,7 @@
             )
             .classList.toggle(
               "hidden",
-              currentView !==
-                "list"
+              currentView !== "list"
             );
 
           renderAll();
@@ -1187,27 +1148,29 @@
 
         if (!symbol) return;
 
-        await api(
-          "/api/simulate/shock",
-          {
-            method: "POST",
-
-            headers: {
-              "Content-Type":
-                "application/json",
-            },
-
-            body: JSON.stringify({
-              symbol,
-              direction,
-              magnitude:
-                0.055,
-
-              volumeMultiplier:
-                7,
-            }),
-          }
-        );
+        try {
+          await api(
+            "/api/simulate/shock",
+            {
+              method: "POST",
+              headers: {
+                "Content-Type":
+                  "application/json",
+              },
+              body: JSON.stringify({
+                symbol,
+                direction,
+                magnitude: 0.055,
+                volumeMultiplier: 7,
+              }),
+            }
+          );
+        } catch (error) {
+          console.error(
+            "Shock request failed:",
+            error
+          );
+        }
       }
     );
 
@@ -1215,15 +1178,10 @@
 
   async function populateSymbolPickers() {
     const data =
-      await api(
-        "/api/symbols"
-      );
+      await api("/api/symbols");
 
-    symbolOptions.innerHTML =
-      "";
-
-    shockSymbolSelect.innerHTML =
-      "";
+    symbolOptions.innerHTML = "";
+    shockSymbolSelect.innerHTML = "";
 
     for (const s of data.symbols) {
       const opt1 =
@@ -1231,23 +1189,19 @@
           "option"
         );
 
-      opt1.value =
-        s.symbol;
+      opt1.value = s.symbol;
 
-      symbolOptions.appendChild(
-        opt1
-      );
+      symbolOptions.appendChild(opt1);
 
       const opt2 =
         document.createElement(
           "option"
         );
 
-      opt2.value =
-        s.symbol;
+      opt2.value = s.symbol;
 
       opt2.textContent =
-        `${s.symbol} \u2014 ${s.name}`;
+        `${s.symbol} — ${s.name}`;
 
       shockSymbolSelect.appendChild(
         opt2
@@ -1278,67 +1232,59 @@
       );
 
       connStatus.innerHTML =
-        '<span class="dot"></span> reconnecting&hellip;';
+        '<span class="dot"></span> reconnecting…';
     };
 
-    es.onmessage = (
-      evt
-    ) => {
-      const payload =
-        JSON.parse(
-          evt.data
+    es.onmessage = (evt) => {
+      try {
+        const payload =
+          JSON.parse(evt.data);
+
+        if (
+          payload.type !== "TICK"
+        ) {
+          return;
+        }
+
+        let touchedWatchlist =
+          false;
+
+        for (const upd of payload.symbols) {
+          if (
+            items.has(upd.symbol)
+          ) {
+            items.set(
+              upd.symbol,
+              {
+                ...items.get(
+                  upd.symbol
+                ),
+                ...upd,
+              }
+            );
+
+            touchedWatchlist =
+              true;
+          }
+        }
+
+        if (touchedWatchlist) {
+          renderAll();
+
+          if (
+            selectedSymbol &&
+            items.has(selectedSymbol)
+          ) {
+            showExplain(
+              selectedSymbol
+            );
+          }
+        }
+      } catch (error) {
+        console.error(
+          "Stream message error:",
+          error
         );
-
-      if (
-        payload.type !==
-        "TICK"
-      ) {
-        return;
-      }
-
-      let touchedWatchlist =
-        false;
-
-      for (const upd of payload.symbols) {
-        if (
-          items.has(
-            upd.symbol
-          )
-        ) {
-          items.set(
-            upd.symbol,
-            {
-              ...items.get(
-                upd.symbol
-              ),
-
-              ...upd,
-            }
-          );
-
-          touchedWatchlist =
-            true;
-        }
-      }
-
-      if (
-        touchedWatchlist
-      ) {
-        renderAll();
-
-        if (
-          selectedSymbol &&
-          items.has(
-            selectedSymbol
-          )
-        ) {
-          // Keep explain panel
-          // fresh if selected symbol
-          // just ticked.
-          showExplain(
-            selectedSymbol
-          );
-        }
       }
     };
   }
@@ -1346,14 +1292,28 @@
   // ---------------- Boot ----------------
 
   (async function init() {
-    buildRadarStatic();
+    try {
+      buildRadarStatic();
 
-    await populateSymbolPickers();
+      await populateSymbolPickers();
 
-    await loadWatchlist();
+      await loadWatchlist();
 
-    await loadDigest();
+      await loadDigest();
 
-    connectStream();
+      connectStream();
+    } catch (error) {
+      console.error(
+        "RADAR initialization failed:",
+        error
+      );
+
+      connStatus.classList.remove(
+        "live"
+      );
+
+      connStatus.innerHTML =
+        '<span class="dot"></span> backend unavailable';
+    }
   })();
 })();
