@@ -1,6 +1,9 @@
-const { symbolState, HISTORY_LIMIT } = require("./store");
-const { computeAttentionScore } = require("./attentionEngine");
+const { symbolState, HISTORY_LIMIT, watchlists } = require("./store");
+const { computeAttentionScore, bandFor } = require("./attentionEngine");
 const { SYMBOLS } = require("./symbols");
+const eventEngine = require("./eventEngine");
+const timelineEngine = require("./timelineEngine");
+const alertsEngine = require("./alertsEngine");
 
 const TICK_MS = 2000; // accelerated vs real markets — a demo can't wait for real volatility
 const subscribers = new Set(); // SSE response objects
@@ -13,6 +16,28 @@ const SECTORS = [...new Set(SYMBOLS.map((s) => s.sector))];
 const SHOCK_DECAY = [1, 0.8, 0.55, 0.35, 0.18, 0.08];
 const pendingShocks = new Map(); // symbol -> { step, magnitude, volumeMultiplier }
 
+// How much of the previously *displayed* attention score survives each
+// tick once the raw/instantaneous score drops. This is what makes a
+// signal cool down gradually (HIGH -> IMPORTANT -> WATCH -> NORMAL)
+// instead of snapping back to 0 the instant the anomaly passes.
+const SCORE_DECAY_FACTOR = 0.82;
+
+// How many ticks back we look to compute "recent move %", used for
+// smart alerts and for the possible-context explanation. At the demo's
+// 2s tick rate, 15 ticks ~= 30s of simulated market time.
+const MOVE_WINDOW_TICKS = 15;
+
+// Evidence type -> short label used to seed the signal timeline the
+// first time a symbol becomes worth watching.
+const EVIDENCE_LABEL = {
+  PRICE_ANOMALY: "Price breakout",
+  VOLUME_ANOMALY: "Volume anomaly",
+  SECTOR_DIVERGENCE: "Sector divergence",
+  MARKET_DIVERGENCE: "Market-wide move",
+  DORMANCY_BREAK: "Dormancy break",
+  THRESHOLD: "Threshold breach",
+};
+
 function gaussianRandom() {
   // Box-Muller — good enough for a demo-realistic random walk
   let u = 0, v = 0;
@@ -21,8 +46,14 @@ function gaussianRandom() {
   return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
 }
 
-function triggerShock(symbol, { direction = 1, magnitude = 0.045, volumeMultiplier = 6 } = {}) {
+function triggerShock(symbol, { direction = 1, magnitude = 0.045, volumeMultiplier = 6, eventType = null } = {}) {
   pendingShocks.set(symbol, { step: 0, magnitude: magnitude * direction, volumeMultiplier });
+
+  // A manually triggered shock always comes with an explanation — that's
+  // the whole point of the demo control ("show the system detect AND
+  // explain it in real time").
+  const st = symbolState.get(symbol);
+  if (st) eventEngine.attachEvent(st, eventType);
 }
 
 function broadcast(payload) {
@@ -30,6 +61,16 @@ function broadcast(payload) {
   for (const res of subscribers) {
     res.write(data);
   }
+}
+
+function timelineTextFor(band, evidence) {
+  if (band === "HIGH_ATTENTION") return "HIGH ATTENTION";
+  if (band === "IMPORTANT") return "IMPORTANT — attention rising";
+  if (band === "WORTH_WATCHING") {
+    const top = evidence && evidence[0];
+    return top ? EVIDENCE_LABEL[top.type] || "Worth watching" : "Worth watching";
+  }
+  return "Signal cooling";
 }
 
 function tick() {
@@ -77,9 +118,13 @@ function tick() {
 
   // 3) Update rolling stats, volume, dormancy, and compute the Attention Score
   const updates = [];
+  const updatesBySymbol = new Map();
+
   for (const meta of SYMBOLS) {
     const st = symbolState.get(meta.symbol);
     const { ret, volumeMultiplier } = returns[meta.symbol];
+
+    eventEngine.clearExpiredEvent(st, now);
 
     st.priceStats.update(ret);
     const priceZ = st.priceStats.zScore(ret);
@@ -95,8 +140,9 @@ function tick() {
     const distanceToHighPct = (st.weekHigh - st.price) / st.weekHigh;
     const distanceToLowPct = (st.price - st.weekLow) / st.weekLow;
 
-    const prevBand = st.attention.band;
     const dormancyMinutes = (now - st.dormancySince) / 60000;
+    const sectorReturn = sectorReturnAvg[meta.sector];
+    const marketReturn = marketReturnAvg;
 
     const attention = computeAttentionScore({
       symbol: meta.symbol,
@@ -104,40 +150,117 @@ function tick() {
       priceZ,
       volumeRatio,
       volumeZ,
-      sectorReturn: sectorReturnAvg[meta.sector],
-      marketReturn: marketReturnAvg,
+      sectorReturn,
+      marketReturn,
       dormancyMinutes,
       distanceToHighPct,
       distanceToLowPct: -distanceToLowPct, // negative distance-to-low means "at/above" — keep low crossing symmetric
+      priceWarm: st.priceStats.isWarm(),
+      volumeWarm: st.volumeStats.isWarm(),
     });
 
-    st.attention = attention;
+    // ------------------------------------------------------------
+    // SCORE DECAY
+    //
+    // The raw score reacts instantly. The *displayed* score is only
+    // allowed to rise instantly — when it falls, it decays gradually
+    // so a signal reads as a real monitoring system ("cooling down")
+    // rather than a static classifier that flips on and off.
+    // ------------------------------------------------------------
+    const prevDisplayScore = st.attention?.score || 0;
+    const prevBand = st.attention?.band || "NORMAL";
 
-    // Reset the dormancy clock whenever this symbol becomes notable again
-    if (attention.band !== "NORMAL") {
-      st.dormancySince = now;
+    let displayScore = attention.score;
+    if (displayScore < prevDisplayScore) {
+      displayScore = Math.max(displayScore, prevDisplayScore * SCORE_DECAY_FACTOR);
+    }
+    displayScore = Math.round(displayScore);
+    const displayBand = bandFor(displayScore);
+
+    st.attention = {
+      ...attention,
+      rawScore: attention.score,
+      score: displayScore,
+      band: displayBand,
+    };
+
+    if (displayBand !== "NORMAL") st.dormancySince = now;
+
+    // ------------------------------------------------------------
+    // SIGNAL TIMELINE — record every band transition
+    // ------------------------------------------------------------
+    if (displayBand !== prevBand) {
+      timelineEngine.recordEvent(meta.symbol, displayBand, timelineTextFor(displayBand, attention.evidence));
     }
 
-    st.history.push({ t: now, price: st.price, volume, score: attention.score });
+    // ------------------------------------------------------------
+    // SIMULATED EVENT CONTEXT
+    // ------------------------------------------------------------
+    eventEngine.maybeAttachEvent(st, displayBand);
+
+    st.history.push({ t: now, price: st.price, volume, score: displayScore });
     if (st.history.length > HISTORY_LIMIT) st.history.shift();
 
-    updates.push({
+    // Recent move % over the trailing window — used for alerts and context.
+    const windowIndex = Math.max(0, st.history.length - 1 - MOVE_WINDOW_TICKS);
+    const windowStart = st.history[windowIndex];
+    const recentMovePct =
+      windowStart && windowStart.price > 0
+        ? ((st.price - windowStart.price) / windowStart.price) * 100
+        : 0;
+
+    // Sector / market divergence classification.
+    const sectorReturnPct = Number((sectorReturn * 100).toFixed(2));
+    const marketReturnPct = Number((marketReturn * 100).toFixed(2));
+    const sectorDivergencePct = Number(((ret - sectorReturn) * 100).toFixed(2));
+
+    let divergenceType = "NONE";
+    if (Math.abs(sectorDivergencePct) >= 1.2) {
+      divergenceType = "COMPANY_SPECIFIC";
+    } else if (Math.abs(marketReturnPct) >= 0.25 && Math.sign(ret) === Math.sign(marketReturn)) {
+      divergenceType = "MARKET_WIDE";
+    }
+
+    st.lastSectorReturnPct = sectorReturnPct;
+    st.lastMarketReturnPct = marketReturnPct;
+    st.lastDivergenceType = divergenceType;
+    st.lastRecentMovePct = Number(recentMovePct.toFixed(2));
+
+    const update = {
       symbol: meta.symbol,
       name: meta.name,
       sector: meta.sector,
       price: Number(st.price.toFixed(2)),
       changePct: Number((ret * 100).toFixed(3)),
+      recentMovePct: st.lastRecentMovePct,
       volume,
       volumeRatio: Number(volumeRatio.toFixed(2)),
-      score: attention.score,
-      band: attention.band,
+      score: displayScore,
+      band: displayBand,
+      confidence: attention.confidence,
       evidence: attention.evidence,
+      sectorReturnPct,
+      marketReturnPct,
+      sectorDivergencePct,
+      divergenceType,
+      activeEvent: st.activeEvent ? { type: st.activeEvent.type, text: st.activeEvent.text } : null,
       weekHigh: Number(st.weekHigh.toFixed(2)),
       weekLow: Number(st.weekLow.toFixed(2)),
-    });
+    };
+
+    updates.push(update);
+    updatesBySymbol.set(meta.symbol, update);
   }
 
   broadcast({ type: "TICK", t: now, symbols: updates, sectorReturnAvg, marketReturnAvg });
+
+  // 4) Smart alerts — evaluate each user's watchlist against their rules.
+  for (const userId of watchlists.keys()) {
+    const triggered = alertsEngine.evaluateAlerts(userId, updatesBySymbol);
+    if (triggered.length > 0) {
+      broadcast({ type: "ALERT", userId, alerts: triggered });
+    }
+  }
 }
 
 function start() {

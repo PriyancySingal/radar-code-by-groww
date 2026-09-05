@@ -6,10 +6,24 @@
 
   <title>Radar · Code by Groww</title>
 
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap"
+    rel="stylesheet"
+  />
+
   <link rel="stylesheet" href="style.css" />
 </head>
 
 <body>
+
+  <!-- Decorative animated background glow (no functional role) -->
+  <div class="bg-fx" aria-hidden="true">
+    <span></span>
+    <span></span>
+    <span></span>
+  </div>
 
   <!-- =========================================================
        TOP BAR
@@ -323,6 +337,64 @@
 
 
       <!-- =====================================================
+           PORTFOLIO
+      ====================================================== -->
+
+      <div class="panel portfolio-panel">
+
+        <div class="panel-heading">
+
+          <div>
+
+            <span class="eyebrow">
+              MY HOLDINGS
+            </span>
+
+            <h2>
+              Portfolio
+            </h2>
+
+          </div>
+
+          <span class="panel-count" id="portfolioCount">
+            0
+          </span>
+
+        </div>
+
+        <p class="portfolio-hint">
+          Symbols you actually own. RADAR prioritizes these above your watchlist everywhere — digest, alerts, and sort order.
+        </p>
+
+        <div class="add-row">
+
+          <input
+            id="addPortfolioInput"
+            list="symbolOptions"
+            placeholder="Add holding (e.g. RELIANCE)"
+            autocomplete="off"
+          />
+
+          <button
+            class="btn btn-primary"
+            id="addPortfolioBtn">
+
+            Add
+
+          </button>
+
+        </div>
+
+
+        <ul
+          class="watch-chip-list portfolio-chip-list"
+          id="portfolioChipList">
+        </ul>
+
+      </div>
+
+
+      <!-- =====================================================
            EXPLAINABILITY
       ====================================================== -->
 
@@ -384,6 +456,12 @@
                 class="explain-band">
               </span>
 
+              <span
+                id="explainPortfolioBadge"
+                class="portfolio-badge hidden">
+                PORTFOLIO
+              </span>
+
             </div>
 
             <span
@@ -435,6 +513,18 @@
           </ul>
 
 
+          <!-- =================================================
+               NOTHING NEEDS ATTENTION — explicit "why it's quiet"
+               checklist shown for NORMAL-band stocks instead of a
+               generic fallback line.
+          ================================================== -->
+
+          <ul
+            id="explainNormalChecklist"
+            class="normal-checklist hidden">
+          </ul>
+
+
           <!-- Components -->
 
           <div
@@ -442,7 +532,126 @@
             id="explainComponents">
           </div>
 
+
+          <!-- =================================================
+               CONFIDENCE
+          ================================================== -->
+
+          <div class="confidence-section">
+
+            <div class="confidence-header">
+              <span>SIGNAL CONFIDENCE</span>
+              <span id="confidenceValue">—</span>
+            </div>
+
+            <div class="confidence-bar-track">
+              <div class="confidence-bar-fill" id="confidenceBarFill"></div>
+            </div>
+
+          </div>
+
+
+          <!-- =================================================
+               POSSIBLE CONTEXT ("WHY DID THIS MOVE?")
+          ================================================== -->
+
+          <div class="context-section">
+
+            <div class="context-header">
+              POSSIBLE CONTEXT
+            </div>
+
+            <ul id="explainContext" class="context-list"></ul>
+
+          </div>
+
+
+          <!-- =================================================
+               SECTOR / MARKET
+          ================================================== -->
+
+          <div class="divergence-section" id="divergenceSection">
+          </div>
+
+
+          <!-- =================================================
+               SIGNAL TIMELINE
+          ================================================== -->
+
+          <div class="timeline-section">
+
+            <div class="timeline-header">
+              SIGNAL TIMELINE
+            </div>
+
+            <ul id="explainTimeline" class="timeline-list">
+              <li class="timeline-empty">No transitions recorded yet.</li>
+            </ul>
+
+          </div>
+
         </div>
+
+      </div>
+
+
+      <!-- =====================================================
+           SMART ALERTS
+      ====================================================== -->
+
+      <div class="panel alerts-panel">
+
+        <div class="panel-heading">
+
+          <div>
+
+            <span class="eyebrow">
+              NOTIFY ME
+            </span>
+
+            <h2>
+              Smart alerts
+            </h2>
+
+          </div>
+
+          <span class="panel-count" id="alertFeedCount">
+            0
+          </span>
+
+        </div>
+
+        <div class="alert-rules">
+
+          <label class="alert-rule">
+            <input type="checkbox" id="ruleHighAttention" checked />
+            High attention reached
+          </label>
+
+          <label class="alert-rule">
+            <input type="checkbox" id="ruleVolume" checked />
+            Volume &gt;
+            <input type="number" id="ruleVolumeValue" class="rule-num" min="1" step="0.5" value="5" />×
+            normal
+          </label>
+
+          <label class="alert-rule">
+            <input type="checkbox" id="rulePrice" checked />
+            Price move &gt;
+            <input type="number" id="rulePriceValue" class="rule-num" min="0.5" step="0.5" value="4" />%
+          </label>
+
+          <label class="alert-rule">
+            <input type="checkbox" id="ruleDivergence" checked />
+            Sector divergence &gt;
+            <input type="number" id="ruleDivergenceValue" class="rule-num" min="0.5" step="0.5" value="3" />pp
+          </label>
+
+        </div>
+
+        <ul class="alert-feed" id="alertFeed">
+          <li class="alert-feed-empty">No alerts yet — they'll show up here the moment a rule is triggered.</li>
+        </ul>
 
       </div>
 
@@ -498,6 +707,10 @@
 
           </select>
 
+          <select id="shockEventType">
+            <option value="">Random context</option>
+          </select>
+
           <button
             class="btn btn-signal"
             id="shockBtn">
@@ -515,6 +728,13 @@
     </aside>
 
   </main>
+
+
+  <!-- =========================================================
+       LIVE ALERT TOASTS
+  ========================================================== -->
+
+  <div id="toastStack" class="toast-stack" aria-live="polite"></div>
 
 
   <!-- =========================================================

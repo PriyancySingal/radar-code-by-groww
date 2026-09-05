@@ -90,6 +90,11 @@ function computeAttentionScore(input) {
     dormancyMinutes = 0,
     distanceToHighPct = 999,
     distanceToLowPct = 999,
+    // Whether each rolling statistic has enough samples to be trusted.
+    // Used only for the confidence estimate below — the score itself
+    // already degrades gracefully during warm-up via RollingStats.zScore().
+    priceWarm = false,
+    volumeWarm = false,
   } = input;
 
   const evidence = [];
@@ -336,30 +341,89 @@ function computeAttentionScore(input) {
     (a, b) => b.severity - a.severity
   );
 
+  // ============================================================
+  // CONFIDENCE
+  // ============================================================
+  //
+  // ATTENTION and CONFIDENCE answer two different questions:
+  //   ATTENTION  = "how unusual/urgent is this?"
+  //   CONFIDENCE = "how sure are we that this reading is trustworthy?"
+  //
+  // Confidence rises when multiple independent components agree
+  // (price + volume + divergence all pointing the same direction is
+  // more trustworthy than a single noisy component) and when the
+  // underlying rolling statistics have enough samples to be meaningful.
+  //
+  const componentsEngaged = [
+    priceComponent,
+    volumeComponent,
+    divergenceComponent,
+    dormancyComponent,
+    thresholdComponent,
+  ].filter((c) => c >= 4).length;
+
+  let confidence = 22 + componentsEngaged * 16;
+  if (priceWarm) confidence += 6;
+  if (volumeWarm) confidence += 6;
+
+  confidence = Math.round(clamp(confidence, 5, 97));
+
+  const components = {
+    priceComponent: Math.round(priceComponent),
+    volumeComponent: Math.round(volumeComponent),
+    divergenceComponent: Math.round(divergenceComponent),
+    dormancyComponent: Math.round(dormancyComponent),
+    thresholdComponent: Math.round(thresholdComponent),
+  };
+
   return {
     symbol,
     score,
     band: bandFor(score),
 
+    confidence,
     evidence,
 
-    components: {
-      priceComponent:
-        Math.round(priceComponent),
+    components,
 
-      volumeComponent:
-        Math.round(volumeComponent),
-
-      divergenceComponent:
-        Math.round(divergenceComponent),
-
-      dormancyComponent:
-        Math.round(dormancyComponent),
-
-      thresholdComponent:
-        Math.round(thresholdComponent),
-    },
+    // ============================================================
+    // "NOTHING IS WRONG" — explicit reassurance for NORMAL stocks
+    // ============================================================
+    //
+    // Product principle: don't just go quiet on a normal stock —
+    // say so explicitly, otherwise the user is left wondering
+    // whether RADAR is actually working. "Because nothing needs
+    // your attention" is itself the answer.
+    //
+    normalChecklist: buildNormalChecklist(components),
   };
+}
+
+/**
+ * A quiet component (below the same "engaged" threshold used for
+ * confidence) means that dimension is behaving as expected.
+ */
+const QUIET_THRESHOLD = 4;
+
+function buildNormalChecklist(components) {
+  return [
+    {
+      ok: components.priceComponent < QUIET_THRESHOLD,
+      label: "Price within expected range",
+    },
+    {
+      ok: components.volumeComponent < QUIET_THRESHOLD,
+      label: "Volume normal",
+    },
+    {
+      ok: components.divergenceComponent < QUIET_THRESHOLD,
+      label: "No significant sector divergence",
+    },
+    {
+      ok: components.thresholdComponent < QUIET_THRESHOLD,
+      label: "No threshold breach (52-week high/low)",
+    },
+  ];
 }
 
 module.exports = {

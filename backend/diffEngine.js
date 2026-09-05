@@ -1,4 +1,4 @@
-const { symbolState, ensureWatchlist, ensureLastSeen } = require("./store");
+const { symbolState, ensureWatchlist, ensureLastSeen, ensurePortfolio } = require("./store");
 
 const BAND_RANK = {
   NORMAL: 0,
@@ -25,6 +25,7 @@ const MIN_MEANINGFUL_SCORE_DELTA = 15;
  */
 function buildDigest(userId) {
   const wl = ensureWatchlist(userId);
+  const pf = ensurePortfolio(userId);
   const seenMap = ensureLastSeen(userId);
   const changes = [];
 
@@ -106,6 +107,8 @@ function buildDigest(userId) {
       symbol,
       name: st.meta.name,
 
+      isPortfolio: pf.has(symbol),
+
       prevScore: prev.score,
       currentScore: current.score,
       scoreDelta: Number(scoreDelta.toFixed(1)),
@@ -139,9 +142,15 @@ function buildDigest(userId) {
   }
 
   /*
-   * Most urgent/attention-worthy changes first.
+   * Most urgent/attention-worthy changes first — but a holding you
+   * actually own always outranks a mere watchlist symbol, per the
+   * product priority: Portfolio -> Watchlist -> market-wide anomalies.
    */
   changes.sort((a, b) => {
+    if (a.isPortfolio !== b.isPortfolio) {
+      return a.isPortfolio ? -1 : 1;
+    }
+
     const bandDifference =
       BAND_RANK[b.currentBand] -
       BAND_RANK[a.currentBand];

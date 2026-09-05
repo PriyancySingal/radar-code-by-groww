@@ -9,7 +9,21 @@
       "SUNPHARMA"
     ]
   },
+  "portfolios": {
+    "demo-user": [
+      "RELIANCE",
+      "HDFCBANK"
+    ]
+  },
   "lastSeen": {
     "demo-user": {}
+  },
+  "alertRules": {
+    "demo-user": {
+      "highAttention": true,
+      "volumeMultiple": 5,
+      "priceMovePct": 4,
+      "sectorDivergencePct": 3
+    }
   }
 }
