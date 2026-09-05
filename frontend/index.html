@@ -1,119 +1,527 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Radar &middot; Code by Groww</title>
-<link rel="stylesheet" href="style.css" />
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <title>Radar · Code by Groww</title>
+
+  <link rel="stylesheet" href="style.css" />
 </head>
+
 <body>
 
-<header class="topbar">
-  <div class="brand">
-    <span class="brand-mark" aria-hidden="true"></span>
-    <div class="brand-text">
-      <span class="brand-name">RADAR</span>
-      <span class="brand-sub">what changed while you were away</span>
-    </div>
-  </div>
-  <div class="topbar-right">
-    <div class="conn-status" id="connStatus"><span class="dot"></span> connecting&hellip;</div>
-  </div>
-</header>
+  <!-- =========================================================
+       TOP BAR
+  ========================================================== -->
 
-<div id="digestBanner" class="digest-banner hidden">
-  <div class="digest-banner-main">
-    <strong id="digestCount">0</strong>
-    <span id="digestText">stocks moved outside their normal range while you were away</span>
-  </div>
-  <div class="digest-banner-list" id="digestList"></div>
-  <button class="btn btn-ghost" id="digestDismiss">Mark all as seen</button>
-</div>
+  <header class="topbar">
 
-<div id="calmBanner" class="calm-banner hidden">
-  <span id="calmText">All caught up &mdash; nothing needs you right now.</span>
-</div>
+    <div class="brand">
 
-<main class="layout">
+      <span
+        class="brand-mark"
+        aria-hidden="true">
+      </span>
 
-  <section class="radar-pane">
-    <div class="pane-header">
-      <div class="view-toggle">
-        <button class="toggle-btn active" data-view="radar">Radar</button>
-        <button class="toggle-btn" data-view="list">List</button>
+      <div class="brand-text">
+
+        <span class="brand-name">
+          RADAR
+        </span>
+
+        <span class="brand-sub">
+          what changed while you were away
+        </span>
+
       </div>
-      <div class="legend">
-        <span class="legend-item"><i class="dot dot-high"></i>High attention</span>
-        <span class="legend-item"><i class="dot dot-important"></i>Important</span>
-        <span class="legend-item"><i class="dot dot-watch"></i>Worth watching</span>
-        <span class="legend-item"><i class="dot dot-normal"></i>Normal</span>
+
+    </div>
+
+    <div class="topbar-right">
+
+      <div
+        class="conn-status"
+        id="connStatus">
+
+        <span class="dot"></span>
+
+        connecting…
+
       </div>
+
     </div>
 
-    <div id="radarView" class="radar-view">
-      <svg id="radarSvg" viewBox="0 0 600 600" preserveAspectRatio="xMidYMid meet"></svg>
+  </header>
+
+
+  <!-- =========================================================
+       DIGEST BANNER
+  ========================================================== -->
+
+  <div
+    id="digestBanner"
+    class="digest-banner hidden">
+
+    <div class="digest-banner-main">
+
+      <strong id="digestCount">
+        0
+      </strong>
+
+      <span id="digestText">
+        stocks moved outside their normal range while you were away
+      </span>
+
     </div>
 
-    <div id="listView" class="list-view hidden">
-      <table class="watch-table">
-        <thead>
-          <tr><th>Symbol</th><th>Sector</th><th class="num">Price</th><th class="num">Chg</th><th class="num">Score</th><th>Status</th></tr>
-        </thead>
-        <tbody id="watchTableBody"></tbody>
-      </table>
-    </div>
-  </section>
-
-  <aside class="side-pane">
-    <div class="panel">
-      <h2>Watchlist</h2>
-      <div class="add-row">
-        <input id="addSymbolInput" list="symbolOptions" placeholder="Add symbol (e.g. INFY)" autocomplete="off" />
-        <datalist id="symbolOptions"></datalist>
-        <button class="btn btn-primary" id="addSymbolBtn">Add</button>
-      </div>
-      <ul class="watch-chip-list" id="watchChipList"></ul>
+    <div
+      class="digest-banner-list"
+      id="digestList">
     </div>
 
-    <div class="panel" id="explainPanel">
-      <h2>Why this signal?</h2>
-      <div id="explainEmpty" class="explain-empty">Click a blip on the radar &mdash; or a row in the list &mdash; to see the evidence behind its score.</div>
-      <div id="explainContent" class="explain-content hidden">
-        <div class="explain-title">
-          <span id="explainSymbol"></span>
-          <span id="explainScore" class="score-badge"></span>
+    <button
+      class="btn btn-ghost"
+      id="digestDismiss">
+
+      Mark all as seen
+
+    </button>
+
+  </div>
+
+
+  <!-- =========================================================
+       CALM STATE
+  ========================================================== -->
+
+  <div
+    id="calmBanner"
+    class="calm-banner hidden">
+
+    <span id="calmText">
+      All caught up — nothing needs you right now.
+    </span>
+
+  </div>
+
+
+  <!-- =========================================================
+       MAIN APPLICATION
+  ========================================================== -->
+
+  <main class="layout">
+
+
+    <!-- =======================================================
+         RADAR PANE
+    ======================================================== -->
+
+    <section class="radar-pane">
+
+      <div class="pane-header">
+
+        <!-- View toggle -->
+
+        <div class="view-toggle">
+
+          <button
+            class="toggle-btn active"
+            data-view="radar">
+
+            Radar
+
+          </button>
+
+          <button
+            class="toggle-btn"
+            data-view="list">
+
+            List
+
+          </button>
+
         </div>
-        <div id="explainBand" class="explain-band"></div>
 
-<div class="sparkline-section">
-  <div class="sparkline-header">
-    <span>PRICE HISTORY</span>
-    <span id="sparklineRange"></span>
-  </div>
-  <svg id="priceSparkline" class="price-sparkline" viewBox="0 0 360 100" preserveAspectRatio="none"></svg>
-</div>
 
-<ul id="explainEvidence" class="explain-evidence"></ul>
-<div class="explain-components" id="explainComponents"></div>
+        <!-- Legend -->
+
+        <div class="legend">
+
+          <span class="legend-item">
+
+            <i class="dot dot-high"></i>
+
+            High attention
+
+          </span>
+
+          <span class="legend-item">
+
+            <i class="dot dot-important"></i>
+
+            Important
+
+          </span>
+
+          <span class="legend-item">
+
+            <i class="dot dot-watch"></i>
+
+            Worth watching
+
+          </span>
+
+          <span class="legend-item">
+
+            <i class="dot dot-normal"></i>
+
+            Normal
+
+          </span>
+
+        </div>
+
       </div>
-    </div>
 
-    <div class="panel demo-panel">
-      <h2>Demo control</h2>
-      <p class="demo-note">Market data is a live simulator so this always demos reliably, on or off market hours. Trigger a shock to show the system detect it in real time.</p>
-      <div class="demo-row">
-        <select id="shockSymbol"></select>
-        <select id="shockDirection">
-          <option value="up">Spike up</option>
-          <option value="down">Spike down</option>
-        </select>
-        <button class="btn btn-signal" id="shockBtn">Trigger shock</button>
+
+      <!-- =====================================================
+           RADAR VIEW
+      ====================================================== -->
+
+      <div
+        id="radarView"
+        class="radar-view">
+
+        <div class="radar-vignette"></div>
+
+        <svg
+          id="radarSvg"
+          viewBox="0 0 600 600"
+          preserveAspectRatio="xMidYMid meet">
+
+        </svg>
+
       </div>
-    </div>
-  </aside>
 
-</main>
 
-<script src="app.js"></script>
+      <!-- =====================================================
+           LIST VIEW
+      ====================================================== -->
+
+      <div
+        id="listView"
+        class="list-view hidden">
+
+        <table class="watch-table">
+
+          <thead>
+
+            <tr>
+
+              <th>
+                Symbol
+              </th>
+
+              <th>
+                Sector
+              </th>
+
+              <th class="num">
+                Price
+              </th>
+
+              <th class="num">
+                Chg
+              </th>
+
+              <th class="num">
+                Score
+              </th>
+
+              <th>
+                Status
+              </th>
+
+            </tr>
+
+          </thead>
+
+          <tbody id="watchTableBody">
+          </tbody>
+
+        </table>
+
+      </div>
+
+    </section>
+
+
+    <!-- =======================================================
+         RIGHT SIDE
+    ======================================================== -->
+
+    <aside class="side-pane">
+
+
+      <!-- =====================================================
+           WATCHLIST
+      ====================================================== -->
+
+      <div class="panel watchlist-panel">
+
+        <div class="panel-heading">
+
+          <div>
+
+            <span class="eyebrow">
+              MONITOR
+            </span>
+
+            <h2>
+              Watchlist
+            </h2>
+
+          </div>
+
+          <span class="panel-count">
+            LIVE
+          </span>
+
+        </div>
+
+
+        <div class="add-row">
+
+          <input
+            id="addSymbolInput"
+            list="symbolOptions"
+            placeholder="Add symbol (e.g. INFY)"
+            autocomplete="off"
+          />
+
+          <datalist id="symbolOptions">
+          </datalist>
+
+          <button
+            class="btn btn-primary"
+            id="addSymbolBtn">
+
+            Add
+
+          </button>
+
+        </div>
+
+
+        <ul
+          class="watch-chip-list"
+          id="watchChipList">
+        </ul>
+
+      </div>
+
+
+      <!-- =====================================================
+           EXPLAINABILITY
+      ====================================================== -->
+
+      <div
+        class="panel explain-panel"
+        id="explainPanel">
+
+        <div class="panel-heading">
+
+          <div>
+
+            <span class="eyebrow">
+              SIGNAL ANALYSIS
+            </span>
+
+            <h2>
+              Why this signal?
+            </h2>
+
+          </div>
+
+        </div>
+
+
+        <div
+          id="explainEmpty"
+          class="explain-empty">
+
+          <div class="empty-icon">
+            +
+          </div>
+
+          <p>
+            Click a blip on the radar — or a row in the
+            list — to see the evidence behind its score.
+          </p>
+
+        </div>
+
+
+        <div
+          id="explainContent"
+          class="explain-content hidden">
+
+
+          <!-- Symbol + Score -->
+
+          <div class="explain-title">
+
+            <div>
+
+              <span
+                id="explainSymbol"
+                class="explain-symbol">
+              </span>
+
+              <span
+                id="explainBand"
+                class="explain-band">
+              </span>
+
+            </div>
+
+            <span
+              id="explainScore"
+              class="score-badge">
+            </span>
+
+          </div>
+
+
+          <!-- =================================================
+               PRICE HISTORY
+          ================================================== -->
+
+          <div class="sparkline-section">
+
+            <div class="sparkline-header">
+
+              <span>
+                PRICE HISTORY
+              </span>
+
+              <span id="sparklineRange">
+              </span>
+
+            </div>
+
+            <div class="sparkline-frame">
+
+              <div class="sparkline-grid"></div>
+
+              <svg
+                id="priceSparkline"
+                class="price-sparkline"
+                viewBox="0 0 360 100"
+                preserveAspectRatio="none">
+              </svg>
+
+            </div>
+
+          </div>
+
+
+          <!-- Evidence -->
+
+          <ul
+            id="explainEvidence"
+            class="explain-evidence">
+          </ul>
+
+
+          <!-- Components -->
+
+          <div
+            class="explain-components"
+            id="explainComponents">
+          </div>
+
+        </div>
+
+      </div>
+
+
+      <!-- =====================================================
+           DEMO CONTROL
+      ====================================================== -->
+
+      <div class="panel demo-panel">
+
+        <div class="panel-heading">
+
+          <div>
+
+            <span class="eyebrow">
+              SIMULATION
+            </span>
+
+            <h2>
+              Demo control
+            </h2>
+
+          </div>
+
+          <span class="demo-live-dot"></span>
+
+        </div>
+
+
+        <p class="demo-note">
+
+          Market data is a live simulator so this always
+          demos reliably, on or off market hours. Trigger
+          a shock to show the system detect it in real time.
+
+        </p>
+
+
+        <div class="demo-row">
+
+          <select id="shockSymbol">
+          </select>
+
+          <select id="shockDirection">
+
+            <option value="up">
+              Spike up
+            </option>
+
+            <option value="down">
+              Spike down
+            </option>
+
+          </select>
+
+          <button
+            class="btn btn-signal"
+            id="shockBtn">
+
+            <span class="button-pulse"></span>
+
+            Trigger shock
+
+          </button>
+
+        </div>
+
+      </div>
+
+    </aside>
+
+  </main>
+
+
+  <!-- =========================================================
+       APPLICATION JS
+  ========================================================== -->
+
+  <script src="app.js"></script>
+
 </body>
 </html>

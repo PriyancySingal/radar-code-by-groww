@@ -1,434 +1,1164 @@
 (() => {
+
   const USER_ID = "demo-user";
   const API = "";
 
-  const BAND_COLOR = {
-    HIGH_ATTENTION: "var(--high)",
-    IMPORTANT: "var(--important)",
-    WORTH_WATCHING: "var(--watch)",
-    NORMAL: "var(--normal)",
+
+  /* ==========================================================
+     BAND CONFIGURATION
+  ========================================================== */
+
+  /* ==========================================================
+     RESOLVED COLORS
+
+     WHY THIS EXISTS:
+     SVG presentation attributes (fill="...", stroke="...") set
+     via setAttribute() do NOT reliably resolve CSS custom
+     properties (var(--x)) across browsers/engines. Some engines
+     silently fail and fall back to the SVG initial value
+     (fill defaults to black, stroke defaults to none), which is
+     why rings/lines/some blips were invisible or rendered black.
+
+     Fix: read each custom property's real value ONCE via
+     getComputedStyle and use that literal value (e.g. "#36e6c1")
+     everywhere we build raw SVG elements. CSS variables are still
+     fine to use in normal HTML/CSS (style attributes, classes) —
+     this only matters for SVG presentation attributes.
+  ========================================================== */
+
+  const rootStyles =
+    getComputedStyle(document.documentElement);
+
+  function cssVar(name, fallback) {
+
+    const value =
+      rootStyles.getPropertyValue(name).trim();
+
+    return value || fallback;
+
+  }
+
+  const COLORS = {
+
+    high: cssVar("--high", "#ff667b"),
+
+    important: cssVar("--important", "#ffbc4f"),
+
+    watch: cssVar("--watch", "#45d8cf"),
+
+    normal: cssVar("--normal", "#6d7f9d"),
+
+    grid: cssVar("--grid", "rgba(91, 126, 164, 0.42)"),
+
+    gridSoft: cssVar("--grid-soft", "rgba(91, 126, 164, 0.20)"),
+
+    sweep: cssVar("--sweep", "#36e6c1"),
+
+    text: cssVar("--text", "#edf4ff"),
+
+    muted: cssVar("--muted", "#718198"),
+
+    mono: '"SFMono-Regular", Consolas, "Liberation Mono", monospace'
+
   };
+
+
+  const BAND_COLOR = {
+
+    HIGH_ATTENTION:
+      COLORS.high,
+
+    IMPORTANT:
+      COLORS.important,
+
+    WORTH_WATCHING:
+      COLORS.watch,
+
+    NORMAL:
+      COLORS.normal
+
+  };
+
 
   const BAND_LABEL = {
-    HIGH_ATTENTION: "High attention",
-    IMPORTANT: "Important",
-    WORTH_WATCHING: "Worth watching",
-    NORMAL: "Normal",
+
+    HIGH_ATTENTION:
+      "High attention",
+
+    IMPORTANT:
+      "Important",
+
+    WORTH_WATCHING:
+      "Worth watching",
+
+    NORMAL:
+      "Normal"
+
   };
 
-  // symbol -> latest known public state
+
+  /* ==========================================================
+     APPLICATION STATE
+  ========================================================== */
+
   const items = new Map();
 
   let currentView = "radar";
+
   let selectedSymbol = null;
 
-  // ---------------- DOM refs ----------------
+  let explainRequestInFlight = false;
 
-  const radarSvg = document.getElementById("radarSvg");
-  const listBody = document.getElementById("watchTableBody");
-  const watchChipList = document.getElementById("watchChipList");
-  const symbolOptions = document.getElementById("symbolOptions");
-  const shockSymbolSelect = document.getElementById("shockSymbol");
-  const connStatus = document.getElementById("connStatus");
+  let explainRefreshPending = false;
 
-  // ---------------- API helpers ----------------
+
+  /* ==========================================================
+     DOM REFERENCES
+  ========================================================== */
+
+  const radarSvg =
+    document.getElementById("radarSvg");
+
+  const listBody =
+    document.getElementById("watchTableBody");
+
+  const watchChipList =
+    document.getElementById("watchChipList");
+
+  const symbolOptions =
+    document.getElementById("symbolOptions");
+
+  const shockSymbolSelect =
+    document.getElementById("shockSymbol");
+
+  const connStatus =
+    document.getElementById("connStatus");
+
+
+  /* ==========================================================
+     API
+  ========================================================== */
 
   async function api(path, opts = {}) {
-    const res = await fetch(API + path, opts);
+
+    const res =
+      await fetch(
+        API + path,
+        opts
+      );
 
     if (!res.ok) {
-      throw new Error(`${path} -> ${res.status}`);
+
+      throw new Error(
+        `${path} -> ${res.status}`
+      );
+
     }
 
     return res.json();
   }
 
-  // ---------------- Stable radar angle per symbol ----------------
 
-  function hashAngle(symbol) {
-    let h = 0;
+  /* ==========================================================
+     UTILITY
+  ========================================================== */
 
-    for (let i = 0; i < symbol.length; i++) {
-      h = (h * 31 + symbol.charCodeAt(i)) >>> 0;
+  function safeNumber(
+    value,
+    fallback = 0
+  ) {
+
+    const n =
+      Number(value);
+
+    return Number.isFinite(n)
+      ? n
+      : fallback;
+  }
+
+
+  function formatPrice(value) {
+
+    return safeNumber(value)
+      .toFixed(2);
+
+  }
+
+
+  function formatPercent(
+    value,
+    digits = 2
+  ) {
+
+    const n =
+      safeNumber(value);
+
+    if (n > 0) {
+
+      return `+${n.toFixed(digits)}%`;
+
     }
 
-    return (h % 360) * (Math.PI / 180);
+    return `${n.toFixed(digits)}%`;
+
   }
+
+
+  function clamp(
+    value,
+    min,
+    max
+  ) {
+
+    return Math.max(
+      min,
+      Math.min(max, value)
+    );
+
+  }
+
+
+  /* ==========================================================
+     STABLE RADAR ANGLE
+  ========================================================== */
+
+  function hashAngle(symbol) {
+
+    let h = 0;
+
+    for (
+      let i = 0;
+      i < symbol.length;
+      i++
+    ) {
+
+      h =
+        (
+          h * 31 +
+          symbol.charCodeAt(i)
+        ) >>> 0;
+
+    }
+
+    return (
+      (h % 360) *
+      (Math.PI / 180)
+    );
+
+  }
+
+
+  /* ==========================================================
+     RADAR POSITION
+  ========================================================== */
 
   function radiusForScore(score) {
-    // Higher score = closer to radar center.
+
     const maxR = 250;
+
     const minR = 40;
 
-    const t = Math.max(0, Math.min(100, score)) / 100;
+    const t =
+      clamp(
+        safeNumber(score),
+        0,
+        100
+      ) / 100;
 
-    return maxR - t * (maxR - minR);
+    return (
+      maxR -
+      t * (maxR - minR)
+    );
+
   }
 
+
   function radiusForBlip(score) {
+
     const minSize = 5;
+
     const maxSize = 15;
 
     return (
       minSize +
-      (Math.max(0, Math.min(100, score)) / 100) *
-        (maxSize - minSize)
+      (
+        clamp(
+          safeNumber(score),
+          0,
+          100
+        ) / 100
+      ) *
+      (maxSize - minSize)
     );
+
   }
 
-  // ---------------- Rendering: Radar ----------------
+
+  /* ==========================================================
+     SVG HELPER
+  ========================================================== */
+
+  const SVG_NS =
+    "http://www.w3.org/2000/svg";
+
+
+  function svgElement(
+    type
+  ) {
+
+    return document.createElementNS(
+      SVG_NS,
+      type
+    );
+
+  }
+
+
+  /* ==========================================================
+     BUILD RADAR
+  ========================================================== */
 
   function buildRadarStatic() {
-    const NS = "http://www.w3.org/2000/svg";
+
+    if (!radarSvg) {
+      return;
+    }
 
     radarSvg.innerHTML = "";
 
     const cx = 300;
+
     const cy = 300;
 
-    // Rings
-    [250, 187, 125, 62].forEach((r, i) => {
-      const circle = document.createElementNS(NS, "circle");
 
-      circle.setAttribute("cx", cx);
-      circle.setAttribute("cy", cy);
-      circle.setAttribute("r", r);
-      circle.setAttribute("fill", "none");
-      circle.setAttribute(
-        "stroke",
-        "var(--grid)"
+    /* --------------------------------------------------------
+       DEFS
+    -------------------------------------------------------- */
+
+    const defs =
+      svgElement("defs");
+
+
+    /* Radar glow */
+
+    const radial =
+      svgElement(
+        "radialGradient"
       );
-      circle.setAttribute(
-        "stroke-width",
-        i === 0 ? 1.4 : 1
+
+    radial.setAttribute(
+      "id",
+      "radarGlow"
+    );
+
+    radial.setAttribute(
+      "cx",
+      "50%"
+    );
+
+    radial.setAttribute(
+      "cy",
+      "50%"
+    );
+
+    radial.setAttribute(
+      "r",
+      "50%"
+    );
+
+
+    const rg1 =
+      svgElement("stop");
+
+    rg1.setAttribute(
+      "offset",
+      "0%"
+    );
+
+    rg1.setAttribute(
+      "stop-color",
+      "#35e6c1"
+    );
+
+    rg1.setAttribute(
+      "stop-opacity",
+      "0.10"
+    );
+
+
+    const rg2 =
+      svgElement("stop");
+
+    rg2.setAttribute(
+      "offset",
+      "65%"
+    );
+
+    rg2.setAttribute(
+      "stop-color",
+      "#35e6c1"
+    );
+
+    rg2.setAttribute(
+      "stop-opacity",
+      "0.015"
+    );
+
+
+    const rg3 =
+      svgElement("stop");
+
+    rg3.setAttribute(
+      "offset",
+      "100%"
+    );
+
+    rg3.setAttribute(
+      "stop-color",
+      "#35e6c1"
+    );
+
+    rg3.setAttribute(
+      "stop-opacity",
+      "0"
+    );
+
+
+    radial.appendChild(rg1);
+    radial.appendChild(rg2);
+    radial.appendChild(rg3);
+
+    defs.appendChild(radial);
+
+
+    /* Sweep gradient */
+
+    const grad =
+      svgElement(
+        "linearGradient"
       );
 
-      radarSvg.appendChild(circle);
-    });
+    grad.setAttribute(
+      "id",
+      "sweepGrad"
+    );
 
-    // Cross-hairs
-    [
-      [cx - 250, cy, cx + 250, cy],
-      [cx, cy - 250, cx, cy + 250],
-    ].forEach(([x1, y1, x2, y2]) => {
-      const line = document.createElementNS(NS, "line");
+    grad.setAttribute(
+      "x1",
+      "0%"
+    );
 
-      line.setAttribute("x1", x1);
-      line.setAttribute("y1", y1);
-      line.setAttribute("x2", x2);
-      line.setAttribute("y2", y2);
-      line.setAttribute(
-        "stroke",
-        "var(--grid-soft)"
-      );
-      line.setAttribute("stroke-width", 1);
+    grad.setAttribute(
+      "y1",
+      "0%"
+    );
 
-      radarSvg.appendChild(line);
-    });
+    grad.setAttribute(
+      "x2",
+      "100%"
+    );
 
-    // Sweep wedge
+    grad.setAttribute(
+      "y2",
+      "0%"
+    );
+
+
+    const stop1 =
+      svgElement("stop");
+
+    stop1.setAttribute(
+      "offset",
+      "0%"
+    );
+
+    stop1.setAttribute(
+      "stop-color",
+      COLORS.sweep
+    );
+
+    stop1.setAttribute(
+      "stop-opacity",
+      "0"
+    );
+
+
+    const stop2 =
+      svgElement("stop");
+
+    stop2.setAttribute(
+      "offset",
+      "100%"
+    );
+
+    stop2.setAttribute(
+      "stop-color",
+      COLORS.sweep
+    );
+
+    stop2.setAttribute(
+      "stop-opacity",
+      "0.24"
+    );
+
+
+    grad.appendChild(stop1);
+    grad.appendChild(stop2);
+
+    defs.appendChild(grad);
+
+
+    radarSvg.appendChild(defs);
+
+
+    /* --------------------------------------------------------
+       CENTER GLOW
+    -------------------------------------------------------- */
+
+    const glow =
+      svgElement("circle");
+
+    glow.setAttribute(
+      "cx",
+      cx
+    );
+
+    glow.setAttribute(
+      "cy",
+      cy
+    );
+
+    glow.setAttribute(
+      "r",
+      "250"
+    );
+
+    glow.setAttribute(
+      "fill",
+      "url(#radarGlow)"
+    );
+
+    radarSvg.appendChild(glow);
+
+
+    /* --------------------------------------------------------
+       RADAR RINGS
+    -------------------------------------------------------- */
+
+    const rings = [
+      250,
+      187,
+      125,
+      62
+    ];
+
+
+    rings.forEach(
+      (r, i) => {
+
+        const circle =
+          svgElement("circle");
+
+        circle.setAttribute(
+          "cx",
+          cx
+        );
+
+        circle.setAttribute(
+          "cy",
+          cy
+        );
+
+        circle.setAttribute(
+          "r",
+          r
+        );
+
+        circle.setAttribute(
+          "fill",
+          "none"
+        );
+
+        circle.setAttribute(
+          "stroke",
+          COLORS.grid
+        );
+
+        circle.setAttribute(
+          "stroke-width",
+          i === 0
+            ? "1.4"
+            : "1"
+        );
+
+        radarSvg.appendChild(
+          circle
+        );
+
+      }
+    );
+
+
+    /* --------------------------------------------------------
+       CROSSHAIRS
+    -------------------------------------------------------- */
+
+    const crosshairLines = [
+
+      [
+        cx - 250,
+        cy,
+        cx + 250,
+        cy
+      ],
+
+      [
+        cx,
+        cy - 250,
+        cx,
+        cy + 250
+      ]
+
+    ];
+
+
+    crosshairLines.forEach(
+      ([x1, y1, x2, y2]) => {
+
+        const line =
+          svgElement("line");
+
+        line.setAttribute(
+          "x1",
+          x1
+        );
+
+        line.setAttribute(
+          "y1",
+          y1
+        );
+
+        line.setAttribute(
+          "x2",
+          x2
+        );
+
+        line.setAttribute(
+          "y2",
+          y2
+        );
+
+        line.setAttribute(
+          "stroke",
+          COLORS.gridSoft
+        );
+
+        line.setAttribute(
+          "stroke-width",
+          "1"
+        );
+
+        radarSvg.appendChild(
+          line
+        );
+
+      }
+    );
+
+
+    /* --------------------------------------------------------
+       CENTER POINT
+    -------------------------------------------------------- */
+
+    const centerOuter =
+      svgElement("circle");
+
+    centerOuter.setAttribute(
+      "cx",
+      cx
+    );
+
+    centerOuter.setAttribute(
+      "cy",
+      cy
+    );
+
+    centerOuter.setAttribute(
+      "r",
+      "5"
+    );
+
+    centerOuter.setAttribute(
+      "fill",
+      "none"
+    );
+
+    centerOuter.setAttribute(
+      "stroke",
+      COLORS.sweep
+    );
+
+    centerOuter.setAttribute(
+      "stroke-width",
+      "1"
+    );
+
+    centerOuter.setAttribute(
+      "opacity",
+      "0.65"
+    );
+
+    radarSvg.appendChild(
+      centerOuter
+    );
+
+
+    const center =
+      svgElement("circle");
+
+    center.setAttribute(
+      "cx",
+      cx
+    );
+
+    center.setAttribute(
+      "cy",
+      cy
+    );
+
+    center.setAttribute(
+      "r",
+      "2"
+    );
+
+    center.setAttribute(
+      "fill",
+      COLORS.sweep
+    );
+
+    radarSvg.appendChild(
+      center
+    );
+
+
+    /* --------------------------------------------------------
+       SWEEP WEDGE
+    -------------------------------------------------------- */
+
     const sweepGroup =
-      document.createElementNS(NS, "g");
+      svgElement("g");
 
     sweepGroup.setAttribute(
       "id",
       "sweepGroup"
     );
 
-    const gradId = "sweepGrad";
-
-    const defs =
-      document.createElementNS(NS, "defs");
-
-    const grad =
-      document.createElementNS(
-        NS,
-        "linearGradient"
-      );
-
-    grad.setAttribute("id", gradId);
-    grad.setAttribute("x1", "0%");
-    grad.setAttribute("y1", "0%");
-    grad.setAttribute("x2", "100%");
-    grad.setAttribute("y2", "0%");
-
-    const stop1 =
-      document.createElementNS(NS, "stop");
-
-    stop1.setAttribute("offset", "0%");
-    stop1.setAttribute(
-      "stop-color",
-      "var(--sweep)"
-    );
-    stop1.setAttribute(
-      "stop-opacity",
-      "0"
-    );
-
-    const stop2 =
-      document.createElementNS(NS, "stop");
-
-    stop2.setAttribute("offset", "100%");
-    stop2.setAttribute(
-      "stop-color",
-      "var(--sweep)"
-    );
-    stop2.setAttribute(
-      "stop-opacity",
-      "0.28"
-    );
-
-    grad.appendChild(stop1);
-    grad.appendChild(stop2);
-
-    defs.appendChild(grad);
-    radarSvg.appendChild(defs);
 
     const wedge =
-      document.createElementNS(NS, "path");
+      svgElement("path");
+
 
     const wedgeAngle =
-      34 * (Math.PI / 180);
+      34 *
+      (Math.PI / 180);
+
+
+    const startAngle =
+      -Math.PI / 2;
+
 
     const x2 =
       cx +
       250 *
-        Math.cos(-Math.PI / 2);
+      Math.cos(
+        startAngle
+      );
+
 
     const y2 =
       cy +
       250 *
-        Math.sin(-Math.PI / 2);
+      Math.sin(
+        startAngle
+      );
+
 
     const x3 =
       cx +
       250 *
-        Math.cos(
-          -Math.PI / 2 + wedgeAngle
-        );
+      Math.cos(
+        startAngle +
+        wedgeAngle
+      );
+
 
     const y3 =
       cy +
       250 *
-        Math.sin(
-          -Math.PI / 2 + wedgeAngle
-        );
+      Math.sin(
+        startAngle +
+        wedgeAngle
+      );
+
 
     wedge.setAttribute(
       "d",
-      `M${cx},${cy} L${x2},${y2} A250,250 0 0,1 ${x3},${y3} Z`
+      `M${cx},${cy}
+       L${x2},${y2}
+       A250,250 0 0,1 ${x3},${y3}
+       Z`
     );
+
 
     wedge.setAttribute(
       "fill",
-      `url(#${gradId})`
+      "url(#sweepGrad)"
     );
 
-    sweepGroup.appendChild(wedge);
-    radarSvg.appendChild(sweepGroup);
+
+    sweepGroup.appendChild(
+      wedge
+    );
+
+
+    radarSvg.appendChild(
+      sweepGroup
+    );
+
+
+    /* --------------------------------------------------------
+       BLIP LAYER
+    -------------------------------------------------------- */
 
     const blipLayer =
-      document.createElementNS(NS, "g");
+      svgElement("g");
 
     blipLayer.setAttribute(
       "id",
       "blipLayer"
     );
 
-    radarSvg.appendChild(blipLayer);
+    radarSvg.appendChild(
+      blipLayer
+    );
+
   }
 
+
+  /* ==========================================================
+     RADAR RENDER
+  ========================================================== */
+
   function renderRadar() {
-    const NS = "http://www.w3.org/2000/svg";
 
     const layer =
       document.getElementById(
         "blipLayer"
       );
 
-    if (!layer) return;
+    if (!layer) {
+      return;
+    }
 
     layer.innerHTML = "";
 
+
     const cx = 300;
+
     const cy = 300;
 
-    for (const st of items.values()) {
-      const angle = hashAngle(st.symbol);
+
+    for (
+      const st of items.values()
+    ) {
+
+      const score =
+        safeNumber(
+          st.score
+        );
+
+
+      const angle =
+        hashAngle(
+          st.symbol
+        );
+
 
       const r =
-        radiusForScore(st.score);
+        radiusForScore(
+          score
+        );
+
 
       const x =
-        cx + r * Math.cos(angle);
+        cx +
+        r *
+        Math.cos(angle);
+
 
       const y =
-        cy + r * Math.sin(angle);
+        cy +
+        r *
+        Math.sin(angle);
+
 
       const color =
-        BAND_COLOR[st.band] ||
+        BAND_COLOR[
+          st.band
+        ] ||
         BAND_COLOR.NORMAL;
 
+
       const g =
-        document.createElementNS(
-          NS,
-          "g"
-        );
+        svgElement("g");
+
 
       g.setAttribute(
         "class",
         "blip"
       );
 
-      g.dataset.symbol = st.symbol;
 
-      // Attention ring
-      if (st.band !== "NORMAL") {
+      g.dataset.symbol =
+        st.symbol;
+
+
+      const blipRadius =
+        radiusForBlip(
+          score
+        );
+
+
+      /* ------------------------------------------------------
+         OUTER ATTENTION RING
+      ------------------------------------------------------ */
+
+      if (
+        st.band !== "NORMAL"
+      ) {
+
         const ring =
-          document.createElementNS(
-            NS,
+          svgElement(
             "circle"
           );
+
 
         ring.setAttribute(
           "class",
           "ring"
         );
 
+
         ring.setAttribute(
           "cx",
           x
         );
+
 
         ring.setAttribute(
           "cy",
           y
         );
 
+
         ring.setAttribute(
           "r",
-          radiusForBlip(st.score) + 6
+          blipRadius + 7
         );
+
 
         ring.setAttribute(
           "stroke",
           color
         );
 
+
         ring.setAttribute(
           "stroke-width",
-          1.5
+          "1.5"
         );
 
-        g.appendChild(ring);
+
+        g.appendChild(
+          ring
+        );
+
       }
 
-      // Core blip
+
+      /* ------------------------------------------------------
+         CORE
+      ------------------------------------------------------ */
+
       const core =
-        document.createElementNS(
-          NS,
+        svgElement(
           "circle"
         );
+
 
       core.setAttribute(
         "class",
         "core"
       );
 
+
       core.setAttribute(
         "cx",
         x
       );
+
 
       core.setAttribute(
         "cy",
         y
       );
 
+
       core.setAttribute(
         "r",
-        radiusForBlip(st.score)
+        blipRadius
       );
+
 
       core.setAttribute(
         "fill",
         color
       );
 
-      g.appendChild(core);
 
-      // Symbol label
+      g.appendChild(
+        core
+      );
+
+
+      /* ------------------------------------------------------
+         LABEL
+      ------------------------------------------------------ */
+
       const label =
-        document.createElementNS(
-          NS,
+        svgElement(
           "text"
         );
+
 
       label.setAttribute(
         "class",
         "blip-label"
       );
 
+
       label.setAttribute(
         "x",
         x
       );
 
+
       label.setAttribute(
         "y",
         y -
-          radiusForBlip(st.score) -
-          6
+        blipRadius -
+        7
       );
+
 
       label.setAttribute(
         "text-anchor",
         "middle"
       );
 
-      label.textContent = st.symbol;
 
-      g.appendChild(label);
+      label.textContent =
+        st.symbol;
+
+
+      g.appendChild(
+        label
+      );
+
+
+      /* ------------------------------------------------------
+         CLICK
+      ------------------------------------------------------ */
 
       g.addEventListener(
         "click",
-        () => showExplain(st.symbol)
+        () => {
+
+          showExplain(
+            st.symbol
+          );
+
+        }
       );
 
-      layer.appendChild(g);
+
+      layer.appendChild(
+        g
+      );
+
     }
+
   }
 
-  // ---------------- Rendering: List ----------------
+
+  /* ==========================================================
+     LIST
+  ========================================================== */
 
   function renderList() {
+
+    if (!listBody) {
+      return;
+    }
+
     listBody.innerHTML = "";
 
+
     const sorted =
-      [...items.values()].sort(
-        (a, b) => b.score - a.score
+      [
+        ...items.values()
+      ].sort(
+        (a, b) =>
+          safeNumber(b.score) -
+          safeNumber(a.score)
       );
 
-    for (const st of sorted) {
+
+    for (
+      const st of sorted
+    ) {
+
       const tr =
-        document.createElement("tr");
+        document.createElement(
+          "tr"
+        );
+
 
       const change =
         st.changePct !== undefined
-          ? `${st.changePct.toFixed(2)}%`
+          ? formatPercent(
+              st.changePct
+            )
           : "—";
 
+
       tr.innerHTML = `
-        <td style="font-family:var(--mono); font-weight:600;">
+
+        <td
+          style="
+            font-family:var(--mono);
+            font-weight:600;
+          "
+        >
           ${st.symbol}
         </td>
 
         <td>
-          ${st.sector}
+          ${st.sector || "—"}
         </td>
 
         <td class="num">
-          ${st.price.toFixed(2)}
+          ${formatPrice(st.price)}
         </td>
 
         <td class="num">
@@ -436,275 +1166,529 @@
         </td>
 
         <td class="num">
-          ${st.score}
+          ${safeNumber(st.score)}
         </td>
 
         <td>
-          <span class="status-pill pill-${st.band}">
-            ${BAND_LABEL[st.band] || st.band}
+
+          <span
+            class="status-pill pill-${st.band}"
+          >
+
+            ${
+              BAND_LABEL[st.band]
+              ||
+              st.band
+              ||
+              "Normal"
+            }
+
           </span>
+
         </td>
       `;
 
+
       tr.addEventListener(
         "click",
-        () => showExplain(st.symbol)
+        () =>
+          showExplain(
+            st.symbol
+          )
       );
 
-      listBody.appendChild(tr);
+
+      listBody.appendChild(
+        tr
+      );
+
     }
+
   }
 
-  // ---------------- Watchlist chips ----------------
+
+  /* ==========================================================
+     WATCHLIST CHIPS
+  ========================================================== */
 
   function renderChips() {
+
+    if (!watchChipList) {
+      return;
+    }
+
     watchChipList.innerHTML = "";
 
-    for (const st of items.values()) {
-      const li =
-        document.createElement("li");
 
-      li.className = "watch-chip";
+    for (
+      const st of items.values()
+    ) {
+
+      const li =
+        document.createElement(
+          "li"
+        );
+
+
+      li.className =
+        "watch-chip";
+
 
       li.innerHTML = `
-        ${st.symbol}
+
+        <span>
+          ${st.symbol}
+        </span>
 
         <button
           class="remove-btn"
           title="Remove"
           type="button"
         >
-          &times;
+          ×
         </button>
+
       `;
 
-      li.querySelector(
-        ".remove-btn"
-      ).addEventListener(
+
+      const removeButton =
+        li.querySelector(
+          ".remove-btn"
+        );
+
+
+      removeButton.addEventListener(
         "click",
         async (e) => {
+
           e.stopPropagation();
 
+
           try {
+
             await api(
-              `/api/watchlist/${USER_ID}/${st.symbol}`,
+              `/api/watchlist/${encodeURIComponent(
+                USER_ID
+              )}/${encodeURIComponent(
+                st.symbol
+              )}`,
               {
-                method: "DELETE",
+                method:
+                  "DELETE"
               }
             );
 
-            items.delete(st.symbol);
+
+            items.delete(
+              st.symbol
+            );
+
 
             if (
-              selectedSymbol === st.symbol
+              selectedSymbol ===
+              st.symbol
             ) {
-              selectedSymbol = null;
 
-              document
-                .getElementById(
+              selectedSymbol =
+                null;
+
+
+              const empty =
+                document.getElementById(
                   "explainEmpty"
-                )
-                .classList.remove(
+                );
+
+
+              const content =
+                document.getElementById(
+                  "explainContent"
+                );
+
+
+              if (empty) {
+
+                empty.classList.remove(
                   "hidden"
                 );
 
-              document
-                .getElementById(
-                  "explainContent"
-                )
-                .classList.add(
+              }
+
+
+              if (content) {
+
+                content.classList.add(
                   "hidden"
                 );
+
+              }
+
             }
 
+
             renderAll();
+
+
           } catch (error) {
+
             console.error(
               "Remove failed:",
               error
             );
+
           }
+
         }
       );
 
-      watchChipList.appendChild(li);
+
+      watchChipList.appendChild(
+        li
+      );
+
     }
+
   }
+
+
+  /* ==========================================================
+     RENDER EVERYTHING
+  ========================================================== */
 
   function renderAll() {
-    if (currentView === "radar") {
+
+    if (
+      currentView === "radar"
+    ) {
+
       renderRadar();
+
     } else {
+
       renderList();
+
     }
 
+
     renderChips();
+
   }
 
-  // ---------------- Price Sparkline ----------------
 
-  function renderSparkline(history) {
+  /* ==========================================================
+     PRICE SPARKLINE
+  ========================================================== */
+
+  function renderSparkline(
+    history
+  ) {
+
     const svg =
       document.getElementById(
         "priceSparkline"
       );
+
 
     const rangeLabel =
       document.getElementById(
         "sparklineRange"
       );
 
-    if (!svg) return;
+
+    if (!svg) {
+      return;
+    }
+
 
     svg.innerHTML = "";
+
 
     if (
       !Array.isArray(history) ||
       history.length < 2
     ) {
+
       if (rangeLabel) {
+
         rangeLabel.textContent =
           "warming up";
+
       }
 
       return;
+
     }
+
 
     const values =
       history
-        .map((point) => {
-          if (
-            typeof point === "number"
-          ) {
-            return point;
+        .map(
+          point => {
+
+            if (
+              typeof point ===
+              "number"
+            ) {
+
+              return point;
+
+            }
+
+            return Number(
+              point?.price
+            );
+
           }
+        )
+        .filter(
+          Number.isFinite
+        );
 
-          return Number(point.price);
-        })
-        .filter(Number.isFinite);
 
-    if (values.length < 2) {
+    if (
+      values.length < 2
+    ) {
+
       if (rangeLabel) {
+
         rangeLabel.textContent =
           "warming up";
+
       }
 
       return;
+
     }
 
+
     const width = 360;
+
     const height = 100;
+
     const padding = 8;
 
-    const min = Math.min(...values);
-    const max = Math.max(...values);
-    const spread = max - min || 1;
 
-    const points = values.map(
-      (value, index) => {
-        const x =
-          padding +
-          (index /
-            (values.length - 1)) *
-            (width - padding * 2);
+    const min =
+      Math.min(
+        ...values
+      );
 
-        const y =
-          height -
-          padding -
-          ((value - min) / spread) *
-            (height - padding * 2);
 
-        return `${x.toFixed(1)},${y.toFixed(1)}`;
-      }
+    const max =
+      Math.max(
+        ...values
+      );
+
+
+    const spread =
+      max - min || 1;
+
+
+    const points =
+      values.map(
+        (
+          value,
+          index
+        ) => {
+
+          const x =
+            padding +
+            (
+              index /
+              (values.length - 1)
+            ) *
+            (
+              width -
+              padding * 2
+            );
+
+
+          const y =
+            height -
+            padding -
+            (
+              (value - min) /
+              spread
+            ) *
+            (
+              height -
+              padding * 2
+            );
+
+
+          return (
+            `${x.toFixed(1)},${y.toFixed(1)}`
+          );
+
+        }
+      );
+
+
+    /* --------------------------------------------------------
+       AREA FILL
+    -------------------------------------------------------- */
+
+    const area =
+      svgElement(
+        "polygon"
+      );
+
+
+    const areaPoints =
+      [
+        `${padding},${height - padding}`,
+
+        ...points,
+
+        `${width - padding},${height - padding}`
+      ];
+
+
+    area.setAttribute(
+      "points",
+      areaPoints.join(" ")
     );
 
-    // Line
+
+    area.setAttribute(
+      "fill",
+      "rgba(53,230,193,0.055)"
+    );
+
+
+    svg.appendChild(
+      area
+    );
+
+
+    /* --------------------------------------------------------
+       LINE
+    -------------------------------------------------------- */
+
     const line =
-      document.createElementNS(
-        "http://www.w3.org/2000/svg",
+      svgElement(
         "polyline"
       );
+
 
     line.setAttribute(
       "points",
       points.join(" ")
     );
 
+
     line.setAttribute(
       "fill",
       "none"
     );
 
+
     line.setAttribute(
       "stroke",
-      "var(--sweep)"
+      COLORS.sweep
     );
+
 
     line.setAttribute(
       "stroke-width",
       "2"
     );
 
+
     line.setAttribute(
       "stroke-linecap",
       "round"
     );
+
 
     line.setAttribute(
       "stroke-linejoin",
       "round"
     );
 
-    svg.appendChild(line);
 
-    // Current price marker
+    svg.appendChild(
+      line
+    );
+
+
+    /* --------------------------------------------------------
+       CURRENT PRICE MARKER
+    -------------------------------------------------------- */
+
     const last =
       points[
         points.length - 1
       ].split(",");
 
+
     const marker =
-      document.createElementNS(
-        "http://www.w3.org/2000/svg",
+      svgElement(
         "circle"
       );
+
 
     marker.setAttribute(
       "cx",
       last[0]
     );
 
+
     marker.setAttribute(
       "cy",
       last[1]
     );
+
 
     marker.setAttribute(
       "r",
       "4"
     );
 
+
     marker.setAttribute(
       "fill",
-      "var(--sweep)"
+      COLORS.sweep
     );
 
-    svg.appendChild(marker);
 
-    // Current price text
+    marker.setAttribute(
+      "stroke",
+      "#06120f"
+    );
+
+
+    marker.setAttribute(
+      "stroke-width",
+      "2"
+    );
+
+
+    svg.appendChild(
+      marker
+    );
+
+
+    /* --------------------------------------------------------
+       CURRENT PRICE TEXT
+    -------------------------------------------------------- */
+
     const lastValue =
-      values[values.length - 1];
+      values[
+        values.length - 1
+      ];
+
 
     const priceLabel =
-      document.createElementNS(
-        "http://www.w3.org/2000/svg",
+      svgElement(
         "text"
       );
+
 
     priceLabel.setAttribute(
       "x",
       Number(last[0]) - 4
     );
+
 
     priceLabel.setAttribute(
       "y",
@@ -714,606 +1698,1235 @@
       )
     );
 
+
     priceLabel.setAttribute(
       "text-anchor",
       "end"
     );
 
+
     priceLabel.setAttribute(
       "fill",
-      "var(--text)"
+      COLORS.text
     );
+
 
     priceLabel.setAttribute(
       "font-size",
       "10"
     );
 
+
     priceLabel.setAttribute(
       "font-family",
-      "var(--mono)"
+      COLORS.mono
     );
+
+
+    priceLabel.setAttribute(
+      "font-weight",
+      "700"
+    );
+
 
     priceLabel.textContent =
       lastValue.toFixed(2);
 
-    svg.appendChild(priceLabel);
+
+    svg.appendChild(
+      priceLabel
+    );
+
 
     if (rangeLabel) {
+
       rangeLabel.textContent =
         `${min.toFixed(0)} — ${max.toFixed(0)}`;
+
     }
+
   }
 
-  // ---------------- Explainability panel ----------------
 
-  async function showExplain(symbol) {
-    selectedSymbol = symbol;
+  /* ==========================================================
+     EXPLAINABILITY
+  ========================================================== */
+
+  async function showExplain(
+    symbol
+  ) {
+
+    selectedSymbol =
+      symbol;
+
+
+    if (
+      explainRequestInFlight
+    ) {
+
+      explainRefreshPending =
+        true;
+
+      return;
+
+    }
+
+
+    explainRequestInFlight =
+      true;
+
 
     try {
+
       const data =
         await api(
-          `/api/explain/${symbol}`
+          `/api/explain/${encodeURIComponent(
+            symbol
+          )}`
         );
 
-      document
-        .getElementById(
+
+      if (
+        selectedSymbol !==
+        symbol
+      ) {
+
+        return;
+
+      }
+
+
+      const empty =
+        document.getElementById(
           "explainEmpty"
-        )
-        .classList.add("hidden");
+        );
+
 
       const content =
         document.getElementById(
           "explainContent"
         );
 
-      content.classList.remove(
-        "hidden"
+
+      if (empty) {
+
+        empty.classList.add(
+          "hidden"
+        );
+
+      }
+
+
+      if (content) {
+
+        content.classList.remove(
+          "hidden"
+        );
+
+      }
+
+
+      const explainSymbol =
+        document.getElementById(
+          "explainSymbol"
+        );
+
+
+      const explainScore =
+        document.getElementById(
+          "explainScore"
+        );
+
+
+      const explainBand =
+        document.getElementById(
+          "explainBand"
+        );
+
+
+      if (explainSymbol) {
+
+        explainSymbol.textContent =
+          data.symbol;
+
+      }
+
+
+      if (explainScore) {
+
+        explainScore.textContent =
+          safeNumber(
+            data.score
+          );
+
+      }
+
+
+      if (explainBand) {
+
+        explainBand.textContent =
+          BAND_LABEL[
+            data.band
+          ]
+          ||
+          data.band
+          ||
+          "Normal";
+
+      }
+
+
+      renderSparkline(
+        data.history
       );
 
-      document.getElementById(
-        "explainSymbol"
-      ).textContent = data.symbol;
 
-      document.getElementById(
-        "explainScore"
-      ).textContent = data.score;
-
-      document.getElementById(
-        "explainBand"
-      ).textContent =
-        BAND_LABEL[data.band] ||
-        data.band;
-
-      renderSparkline(data.history);
+      /* --------------------------------------------------------
+         EVIDENCE
+      -------------------------------------------------------- */
 
       const evidenceList =
         document.getElementById(
           "explainEvidence"
         );
 
-      evidenceList.innerHTML = "";
 
-      if (
-        !Array.isArray(data.evidence) ||
-        data.evidence.length === 0
-      ) {
-        const li =
-          document.createElement("li");
+      if (evidenceList) {
 
-        li.style.borderLeftColor =
-          "var(--grid)";
+        evidenceList.innerHTML =
+          "";
 
-        li.style.color =
-          "var(--muted)";
 
-        li.textContent =
-          "Behaving normally — nothing in its current move is statistically unusual.";
+        if (
+          !Array.isArray(
+            data.evidence
+          )
+          ||
+          data.evidence.length ===
+            0
+        ) {
 
-        evidenceList.appendChild(li);
-      } else {
-        for (const ev of data.evidence) {
           const li =
-            document.createElement("li");
+            document.createElement(
+              "li"
+            );
 
-          li.textContent = ev.text;
 
-          evidenceList.appendChild(li);
+          li.style.borderLeftColor =
+            "var(--grid)";
+
+
+          li.style.color =
+            "var(--muted)";
+
+
+          li.textContent =
+            "Behaving normally — nothing in its current move is statistically unusual.";
+
+
+          evidenceList.appendChild(
+            li
+          );
+
+
+        } else {
+
+          for (
+            const ev of data.evidence
+          ) {
+
+            const li =
+              document.createElement(
+                "li"
+              );
+
+
+            li.textContent =
+              typeof ev ===
+              "string"
+                ? ev
+                : ev?.text ||
+                  "Unusual market behavior detected.";
+
+
+            evidenceList.appendChild(
+              li
+            );
+
+          }
+
         }
+
       }
+
+
+      /* --------------------------------------------------------
+         COMPONENTS
+      -------------------------------------------------------- */
 
       const comps =
         document.getElementById(
           "explainComponents"
         );
 
-      comps.innerHTML = "";
 
-      const labels = {
-        priceComponent: "price",
-        volumeComponent: "volume",
-        divergenceComponent: "divergence",
-        dormancyComponent: "dormancy",
-        thresholdComponent: "threshold",
-      };
+      if (comps) {
 
-      if (data.components) {
-        for (const [
-          key,
-          val,
-        ] of Object.entries(
+        comps.innerHTML =
+          "";
+
+
+        const labels = {
+
+          priceComponent:
+            "price",
+
+          volumeComponent:
+            "volume",
+
+          divergenceComponent:
+            "divergence",
+
+          dormancyComponent:
+            "dormancy",
+
+          thresholdComponent:
+            "threshold"
+
+        };
+
+
+        if (
           data.components
-        )) {
-          const chip =
-            document.createElement(
-              "span"
+        ) {
+
+          for (
+            const [
+              key,
+              val
+            ]
+            of Object.entries(
+              data.components
+            )
+          ) {
+
+            const chip =
+              document.createElement(
+                "span"
+              );
+
+
+            chip.className =
+              "comp-chip";
+
+
+            const numericValue =
+              safeNumber(
+                val
+              );
+
+
+            chip.textContent =
+              `${
+                labels[key] ||
+                key
+              } +${numericValue}`;
+
+
+            comps.appendChild(
+              chip
             );
 
-          chip.className =
-            "comp-chip";
+          }
 
-          chip.textContent =
-            `${labels[key] || key} +${val}`;
-
-          comps.appendChild(chip);
         }
+
       }
+
+
     } catch (error) {
+
       console.error(
         "Explain request failed:",
         error
       );
+
+
+    } finally {
+
+      explainRequestInFlight =
+        false;
+
+
+      if (
+        explainRefreshPending
+      ) {
+
+        explainRefreshPending =
+          false;
+
+
+        if (
+          selectedSymbol
+        ) {
+
+          showExplain(
+            selectedSymbol
+          );
+
+        }
+
+      }
+
     }
+
   }
 
-  // ---------------- Digest / calm state ----------------
+
+  /* ==========================================================
+     DIGEST
+  ========================================================== */
 
   async function loadDigest() {
+
     try {
+
       const data =
         await api(
-          `/api/digest/${USER_ID}`
+          `/api/digest/${encodeURIComponent(
+            USER_ID
+          )}`
         );
+
 
       const banner =
         document.getElementById(
           "digestBanner"
         );
 
+
       const calm =
         document.getElementById(
           "calmBanner"
         );
 
-      if (data.count > 0) {
-        document.getElementById(
-          "digestCount"
-        ).textContent = data.count;
 
-        document.getElementById(
-          "digestText"
-        ).textContent =
-          data.count === 1
-            ? "stock moved outside its normal range while you were away"
-            : "stocks moved outside their normal range while you were away";
+      if (
+        !banner ||
+        !calm
+      ) {
+
+        return;
+
+      }
+
+
+      if (
+        data.count > 0
+      ) {
+
+        const digestCount =
+          document.getElementById(
+            "digestCount"
+          );
+
+
+        const digestText =
+          document.getElementById(
+            "digestText"
+          );
+
 
         const list =
           document.getElementById(
             "digestList"
           );
 
-        list.innerHTML = "";
 
-        for (const ch of data.changes.slice(
-          0,
-          5
-        )) {
-          const div =
-            document.createElement(
-              "div"
-            );
+        if (digestCount) {
 
-          div.className =
-            "digest-item";
+          digestCount.textContent =
+            data.count;
 
-          const strong =
-            document.createElement(
-              "strong"
-            );
-
-          strong.textContent =
-            ch.symbol;
-
-          div.appendChild(strong);
-
-          div.appendChild(
-            document.createTextNode(
-              ` — ${ch.narrative}`
-            )
-          );
-
-          list.appendChild(div);
         }
+
+
+        if (digestText) {
+
+          digestText.textContent =
+            data.count === 1
+              ? "stock moved outside its normal range while you were away"
+              : "stocks moved outside their normal range while you were away";
+
+        }
+
+
+        if (list) {
+
+          list.innerHTML =
+            "";
+
+
+          for (
+            const ch of (
+              data.changes || []
+            ).slice(0, 5)
+          ) {
+
+            const div =
+              document.createElement(
+                "div"
+              );
+
+
+            div.className =
+              "digest-item";
+
+
+            const strong =
+              document.createElement(
+                "strong"
+              );
+
+
+            strong.textContent =
+              ch.symbol;
+
+
+            div.appendChild(
+              strong
+            );
+
+
+            div.appendChild(
+              document.createTextNode(
+                ` — ${
+                  ch.narrative ||
+                  "Meaningful market behavior changed."
+                }`
+              )
+            );
+
+
+            list.appendChild(
+              div
+            );
+
+          }
+
+        }
+
 
         banner.classList.remove(
           "hidden"
         );
 
+
         calm.classList.add(
           "hidden"
         );
+
+
       } else {
+
         banner.classList.add(
           "hidden"
         );
 
-        const count = items.size;
 
-        document.getElementById(
-          "calmText"
-        ).textContent =
-          `${count} stocks reviewed — nothing needs you right now.`;
+        const count =
+          items.size;
+
+
+        const calmText =
+          document.getElementById(
+            "calmText"
+          );
+
+
+        if (calmText) {
+
+          calmText.textContent =
+            `${count} stocks reviewed — nothing needs you right now.`;
+
+        }
+
 
         calm.classList.remove(
           "hidden"
         );
+
       }
+
+
     } catch (error) {
+
       console.error(
         "Digest request failed:",
         error
       );
+
     }
+
   }
 
-  document
-    .getElementById(
+
+  /* ==========================================================
+     DISMISS DIGEST
+  ========================================================== */
+
+  const digestDismiss =
+    document.getElementById(
       "digestDismiss"
-    )
-    .addEventListener(
+    );
+
+
+  if (digestDismiss) {
+
+    digestDismiss.addEventListener(
       "click",
       async () => {
+
         try {
+
           await api(
-            `/api/checkin/${USER_ID}`,
+            `/api/checkin/${encodeURIComponent(
+              USER_ID
+            )}`,
             {
-              method: "POST",
+              method:
+                "POST"
             }
           );
 
-          document
-            .getElementById(
+
+          const banner =
+            document.getElementById(
               "digestBanner"
-            )
-            .classList.add(
+            );
+
+
+          if (banner) {
+
+            banner.classList.add(
               "hidden"
             );
 
+          }
+
+
           await loadDigest();
+
+
         } catch (error) {
+
           console.error(
             "Check-in failed:",
             error
           );
+
         }
+
       }
     );
 
-  // ---------------- Watchlist load / add ----------------
+  }
+
+
+  /* ==========================================================
+     LOAD WATCHLIST
+  ========================================================== */
 
   async function loadWatchlist() {
+
     const data =
       await api(
-        `/api/watchlist/${USER_ID}`
+        `/api/watchlist/${encodeURIComponent(
+          USER_ID
+        )}`
       );
+
 
     items.clear();
 
-    for (const it of data.items) {
-      items.set(it.symbol, it);
+
+    for (
+      const it of (
+        data.items || []
+      )
+    ) {
+
+      items.set(
+        it.symbol,
+        it
+      );
+
     }
 
+
     renderAll();
+
   }
 
-  document
-    .getElementById(
+
+  /* ==========================================================
+     ADD SYMBOL
+  ========================================================== */
+
+  const addSymbolBtn =
+    document.getElementById(
       "addSymbolBtn"
-    )
-    .addEventListener(
+    );
+
+
+  if (addSymbolBtn) {
+
+    addSymbolBtn.addEventListener(
       "click",
       addSymbol
     );
 
-  document
-    .getElementById(
+  }
+
+
+  const addSymbolInput =
+    document.getElementById(
       "addSymbolInput"
-    )
-    .addEventListener(
+    );
+
+
+  if (addSymbolInput) {
+
+    addSymbolInput.addEventListener(
       "keydown",
-      (e) => {
-        if (e.key === "Enter") {
+      e => {
+
+        if (
+          e.key ===
+          "Enter"
+        ) {
+
           addSymbol();
+
         }
+
       }
     );
 
+  }
+
+
   async function addSymbol() {
+
     const input =
       document.getElementById(
         "addSymbolInput"
       );
+
+
+    if (!input) {
+      return;
+    }
+
 
     const symbol =
       input.value
         .trim()
         .toUpperCase();
 
-    if (!symbol) return;
+
+    if (!symbol) {
+      return;
+    }
+
 
     try {
+
       await api(
-        `/api/watchlist/${USER_ID}`,
+        `/api/watchlist/${encodeURIComponent(
+          USER_ID
+        )}`,
         {
-          method: "POST",
+
+          method:
+            "POST",
+
           headers: {
+
             "Content-Type":
-              "application/json",
+              "application/json"
+
           },
-          body: JSON.stringify({
-            symbol,
-          }),
+
+          body:
+            JSON.stringify({
+              symbol
+            })
+
         }
       );
 
-      input.value = "";
+
+      input.value =
+        "";
+
+
+      input.placeholder =
+        "Add symbol...";
+
 
       await loadWatchlist();
+
+
     } catch (error) {
+
       console.error(
         "Add symbol failed:",
         error
       );
 
-      input.value = "";
+
+      input.value =
+        "";
+
+
       input.placeholder =
         "Unknown symbol — try again";
+
     }
+
   }
 
-  // ---------------- View toggle ----------------
+
+  /* ==========================================================
+     VIEW TOGGLE
+  ========================================================== */
 
   document
-    .querySelectorAll(".toggle-btn")
-    .forEach((btn) => {
-      btn.addEventListener(
-        "click",
-        () => {
-          document
-            .querySelectorAll(
-              ".toggle-btn"
-            )
-            .forEach((b) =>
-              b.classList.remove(
-                "active"
-              )
-            );
-
-          btn.classList.add(
-            "active"
-          );
-
-          currentView =
-            btn.dataset.view;
-
-          document
-            .getElementById(
-              "radarView"
-            )
-            .classList.toggle(
-              "hidden",
-              currentView !== "radar"
-            );
-
-          document
-            .getElementById(
-              "listView"
-            )
-            .classList.toggle(
-              "hidden",
-              currentView !== "list"
-            );
-
-          renderAll();
-        }
-      );
-    });
-
-  // ---------------- Demo shock control ----------------
-
-  document
-    .getElementById(
-      "shockBtn"
+    .querySelectorAll(
+      ".toggle-btn"
     )
-    .addEventListener(
+    .forEach(
+      btn => {
+
+        btn.addEventListener(
+          "click",
+          () => {
+
+            document
+              .querySelectorAll(
+                ".toggle-btn"
+              )
+              .forEach(
+                b =>
+                  b.classList.remove(
+                    "active"
+                  )
+              );
+
+
+            btn.classList.add(
+              "active"
+            );
+
+
+            currentView =
+              btn.dataset.view;
+
+
+            const radarView =
+              document.getElementById(
+                "radarView"
+              );
+
+
+            const listView =
+              document.getElementById(
+                "listView"
+              );
+
+
+            if (radarView) {
+
+              radarView.classList.toggle(
+                "hidden",
+                currentView !==
+                  "radar"
+              );
+
+            }
+
+
+            if (listView) {
+
+              listView.classList.toggle(
+                "hidden",
+                currentView !==
+                  "list"
+              );
+
+            }
+
+
+            renderAll();
+
+          }
+        );
+
+      }
+    );
+
+
+  /* ==========================================================
+     SHOCK CONTROL
+  ========================================================== */
+
+  const shockBtn =
+    document.getElementById(
+      "shockBtn"
+    );
+
+
+  if (shockBtn) {
+
+    shockBtn.addEventListener(
       "click",
       async () => {
+
         const symbol =
-          shockSymbolSelect.value;
+          shockSymbolSelect?.value;
+
 
         const direction =
           document.getElementById(
             "shockDirection"
-          ).value;
+          )?.value;
 
-        if (!symbol) return;
+
+        if (!symbol) {
+          return;
+        }
+
 
         try {
+
           await api(
             "/api/simulate/shock",
             {
-              method: "POST",
+
+              method:
+                "POST",
+
               headers: {
+
                 "Content-Type":
-                  "application/json",
+                  "application/json"
+
               },
-              body: JSON.stringify({
-                symbol,
-                direction,
-                magnitude: 0.055,
-                volumeMultiplier: 7,
-              }),
+
+              body:
+                JSON.stringify({
+
+                  symbol,
+
+                  direction,
+
+                  magnitude:
+                    0.055,
+
+                  volumeMultiplier:
+                    7
+
+                })
+
             }
           );
+
+
         } catch (error) {
+
           console.error(
             "Shock request failed:",
             error
           );
+
         }
+
       }
     );
 
-  // ---------------- Symbol pickers ----------------
-
-  async function populateSymbolPickers() {
-    const data =
-      await api("/api/symbols");
-
-    symbolOptions.innerHTML = "";
-    shockSymbolSelect.innerHTML = "";
-
-    for (const s of data.symbols) {
-      const opt1 =
-        document.createElement(
-          "option"
-        );
-
-      opt1.value = s.symbol;
-
-      symbolOptions.appendChild(opt1);
-
-      const opt2 =
-        document.createElement(
-          "option"
-        );
-
-      opt2.value = s.symbol;
-
-      opt2.textContent =
-        `${s.symbol} — ${s.name}`;
-
-      shockSymbolSelect.appendChild(
-        opt2
-      );
-    }
   }
 
-  // ---------------- Live stream ----------------
+
+  /* ==========================================================
+     SYMBOL PICKERS
+  ========================================================== */
+
+  async function populateSymbolPickers() {
+
+    const data =
+      await api(
+        "/api/symbols"
+      );
+
+
+    if (symbolOptions) {
+
+      symbolOptions.innerHTML =
+        "";
+
+    }
+
+
+    if (shockSymbolSelect) {
+
+      shockSymbolSelect.innerHTML =
+        "";
+
+    }
+
+
+    for (
+      const s of (
+        data.symbols || []
+      )
+    ) {
+
+      if (symbolOptions) {
+
+        const opt1 =
+          document.createElement(
+            "option"
+          );
+
+
+        opt1.value =
+          s.symbol;
+
+
+        symbolOptions.appendChild(
+          opt1
+        );
+
+      }
+
+
+      if (shockSymbolSelect) {
+
+        const opt2 =
+          document.createElement(
+            "option"
+          );
+
+
+        opt2.value =
+          s.symbol;
+
+
+        opt2.textContent =
+          `${s.symbol} — ${s.name}`;
+
+
+        shockSymbolSelect.appendChild(
+          opt2
+        );
+
+      }
+
+    }
+
+  }
+
+
+  /* ==========================================================
+     LIVE STREAM
+  ========================================================== */
 
   function connectStream() {
+
     const es =
       new EventSource(
         "/api/stream"
       );
 
+
     es.onopen = () => {
+
+      if (!connStatus) {
+        return;
+      }
+
+
       connStatus.classList.add(
         "live"
       );
 
+
       connStatus.innerHTML =
         '<span class="dot"></span> live';
+
     };
 
+
     es.onerror = () => {
+
+      if (!connStatus) {
+        return;
+      }
+
+
       connStatus.classList.remove(
         "live"
       );
 
+
       connStatus.innerHTML =
         '<span class="dot"></span> reconnecting…';
+
     };
 
-    es.onmessage = (evt) => {
+
+    es.onmessage = evt => {
+
       try {
+
         const payload =
-          JSON.parse(evt.data);
+          JSON.parse(
+            evt.data
+          );
+
 
         if (
-          payload.type !== "TICK"
+          payload.type !==
+          "TICK"
         ) {
+
           return;
+
         }
+
 
         let touchedWatchlist =
           false;
 
-        for (const upd of payload.symbols) {
+
+        for (
+          const upd of (
+            payload.symbols ||
+            []
+          )
+        ) {
+
           if (
-            items.has(upd.symbol)
+            items.has(
+              upd.symbol
+            )
           ) {
+
             items.set(
               upd.symbol,
               {
                 ...items.get(
                   upd.symbol
                 ),
-                ...upd,
+                ...upd
               }
             );
 
+
             touchedWatchlist =
               true;
+
           }
+
         }
 
-        if (touchedWatchlist) {
+
+        if (
+          touchedWatchlist
+        ) {
+
           renderAll();
+
 
           if (
             selectedSymbol &&
-            items.has(selectedSymbol)
+            items.has(
+              selectedSymbol
+            )
           ) {
+
             showExplain(
               selectedSymbol
             );
+
           }
+
         }
+
+
       } catch (error) {
+
         console.error(
           "Stream message error:",
           error
         );
+
       }
+
     };
+
+
+    return es;
+
   }
 
-  // ---------------- Boot ----------------
+
+  /* ==========================================================
+     INITIALIZATION
+  ========================================================== */
 
   (async function init() {
+
     try {
+
       buildRadarStatic();
+
 
       await populateSymbolPickers();
 
+
       await loadWatchlist();
+
 
       await loadDigest();
 
+
       connectStream();
+
+
     } catch (error) {
+
       console.error(
         "RADAR initialization failed:",
         error
       );
 
-      connStatus.classList.remove(
-        "live"
-      );
 
-      connStatus.innerHTML =
-        '<span class="dot"></span> backend unavailable';
+      if (connStatus) {
+
+        connStatus.classList.remove(
+          "live"
+        );
+
+
+        connStatus.innerHTML =
+          '<span class="dot"></span> backend unavailable';
+
+      }
+
     }
+
   })();
+
 })();
