@@ -12,12 +12,15 @@ const {
   ensureAlertRules,
   setAlertRules,
   ensureAlertFeed,
+  applyWatchlistOp,
+  applyPortfolioOp,
 } = require("./store");
 const { buildDigest, checkin } = require("./diffEngine");
 const simulator = require("./simulator");
 const { SYMBOLS } = require("./symbols");
 const eventEngine = require("./eventEngine");
 const timelineEngine = require("./timelineEngine");
+const backtestEngine = require("./backtestEngine");
 
 const PORT = process.env.PORT || 3000;
 const FRONTEND_DIR = path.join(__dirname, "..", "frontend");
@@ -78,6 +81,8 @@ const MIME = {
   ".css": "text/css",
   ".json": "application/json",
   ".svg": "image/svg+xml",
+  ".woff2": "font/woff2",
+  ".woff": "font/woff",
 };
 
 function serveStatic(req, res, pathname) {
@@ -136,6 +141,13 @@ const server = http.createServer(async (req, res) => {
     return sendJSON(res, 200, { types: eventEngine.EVENT_TYPES });
   }
 
+  // ---- GET /api/backtest — live, continuously-computed validation
+  // of the Attention Score (see backtestEngine.js). Never fabricated:
+  // this literally is the running total since the process started. ----
+  if (pathname === "/api/backtest" && req.method === "GET") {
+    return sendJSON(res, 200, backtestEngine.snapshot());
+  }
+
   // ---- GET /api/watchlist/:userId ----
   let m;
   if ((m = pathname.match(/^\/api\/watchlist\/([^/]+)$/)) && req.method === "GET") {
@@ -149,24 +161,38 @@ const server = http.createServer(async (req, res) => {
     return sendJSON(res, 200, { userId, items });
   }
 
-  // ---- POST /api/watchlist/:userId  { symbol } ----
+  // ---- POST /api/watchlist/:userId  { symbol, deviceId?, ts? } ----
+  // Routed through the same add-wins CRDT as /api/sync (see syncEngine.js)
+  // so a normal edit and a delayed/offline-queued edit are resolved by
+  // one consistent rule, not two different code paths.
   if ((m = pathname.match(/^\/api\/watchlist\/([^/]+)$/)) && req.method === "POST") {
     const userId = decodeURIComponent(m[1]);
     const body = await readBody(req);
     const symbol = (body.symbol || "").toUpperCase();
     if (!symbolState.has(symbol)) return sendJSON(res, 400, { error: "Unknown symbol" });
-    ensureWatchlist(userId).add(symbol);
+    const result = applyWatchlistOp(userId, {
+      type: "add",
+      symbol,
+      ts: Number.isFinite(body.ts) ? body.ts : Date.now(),
+      device: body.deviceId || "primary",
+    });
     persist();
-    return sendJSON(res, 200, { ok: true });
+    return sendJSON(res, 200, { ok: true, ...result });
   }
 
-  // ---- DELETE /api/watchlist/:userId/:symbol ----
+  // ---- DELETE /api/watchlist/:userId/:symbol  (?deviceId=&ts=) ----
   if ((m = pathname.match(/^\/api\/watchlist\/([^/]+)\/([^/]+)$/)) && req.method === "DELETE") {
     const userId = decodeURIComponent(m[1]);
     const symbol = decodeURIComponent(m[2]).toUpperCase();
-    ensureWatchlist(userId).delete(symbol);
+    const tsParam = Number(url.searchParams.get("ts"));
+    const result = applyWatchlistOp(userId, {
+      type: "remove",
+      symbol,
+      ts: Number.isFinite(tsParam) ? tsParam : Date.now(),
+      device: url.searchParams.get("deviceId") || "primary",
+    });
     persist();
-    return sendJSON(res, 200, { ok: true });
+    return sendJSON(res, 200, { ok: true, ...result });
   }
 
   // ---- GET /api/portfolio/:userId ----
@@ -181,26 +207,71 @@ const server = http.createServer(async (req, res) => {
     return sendJSON(res, 200, { userId, items });
   }
 
-  // ---- POST /api/portfolio/:userId  { symbol } ----
+  // ---- POST /api/portfolio/:userId  { symbol, deviceId?, ts? } ----
   if ((m = pathname.match(/^\/api\/portfolio\/([^/]+)$/)) && req.method === "POST") {
     const userId = decodeURIComponent(m[1]);
     const body = await readBody(req);
     const symbol = (body.symbol || "").toUpperCase();
     if (!symbolState.has(symbol)) return sendJSON(res, 400, { error: "Unknown symbol" });
-    ensurePortfolio(userId).add(symbol);
-    // A holding you own should always be on the watchlist too.
-    ensureWatchlist(userId).add(symbol);
+    const result = applyPortfolioOp(userId, {
+      type: "add",
+      symbol,
+      ts: Number.isFinite(body.ts) ? body.ts : Date.now(),
+      device: body.deviceId || "primary",
+    });
     persist();
-    return sendJSON(res, 200, { ok: true });
+    return sendJSON(res, 200, { ok: true, ...result });
   }
 
-  // ---- DELETE /api/portfolio/:userId/:symbol ----
+  // ---- DELETE /api/portfolio/:userId/:symbol  (?deviceId=&ts=) ----
   if ((m = pathname.match(/^\/api\/portfolio\/([^/]+)\/([^/]+)$/)) && req.method === "DELETE") {
     const userId = decodeURIComponent(m[1]);
     const symbol = decodeURIComponent(m[2]).toUpperCase();
-    ensurePortfolio(userId).delete(symbol);
+    const tsParam = Number(url.searchParams.get("ts"));
+    const result = applyPortfolioOp(userId, {
+      type: "remove",
+      symbol,
+      ts: Number.isFinite(tsParam) ? tsParam : Date.now(),
+      device: url.searchParams.get("deviceId") || "primary",
+    });
     persist();
-    return sendJSON(res, 200, { ok: true });
+    return sendJSON(res, 200, { ok: true, ...result });
+  }
+
+  // ---- POST /api/sync/:userId  { deviceId, ops:[{kind,type,symbol,ts}] } ----
+  //
+  // Flushes a batch of edits queued by an offline/delayed device against
+  // the CRDT (see syncEngine.js). Used by the "conflict simulator" panel
+  // in the UI, but the exact same merge path a real second device or a
+  // flaky connection would hit — nothing here is demo-only logic.
+  if ((m = pathname.match(/^\/api\/sync\/([^/]+)$/)) && req.method === "POST") {
+    const userId = decodeURIComponent(m[1]);
+    const body = await readBody(req);
+    const deviceId = body.deviceId || "unknown-device";
+    const ops = Array.isArray(body.ops) ? body.ops : [];
+
+    const results = ops.map((op) => {
+      const symbol = (op.symbol || "").toUpperCase();
+      if (!symbolState.has(symbol) || (op.type !== "add" && op.type !== "remove")) {
+        return { symbol, type: op.type, error: "invalid op" };
+      }
+      const opPayload = { type: op.type, symbol, ts: Number(op.ts) || Date.now(), device: deviceId };
+      const result =
+        op.kind === "portfolio" ? applyPortfolioOp(userId, opPayload) : applyWatchlistOp(userId, opPayload);
+      return { kind: op.kind === "portfolio" ? "portfolio" : "watchlist", ...result };
+    });
+
+    persist();
+
+    const wl = ensureWatchlist(userId);
+    const pf = ensurePortfolio(userId);
+    return sendJSON(res, 200, {
+      ok: true,
+      results,
+      watchlist: [...wl],
+      portfolio: [...pf],
+      serverTime: Date.now(),
+    });
   }
 
   // ---- GET /api/digest/:userId ----

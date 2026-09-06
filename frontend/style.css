@@ -295,6 +295,58 @@ body::after {
   animation: shimmerLine 6s linear infinite;
 }
 
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.feature-badges {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.feature-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+
+  border: 1px solid var(--border-soft);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--muted);
+
+  font-size: 10.5px;
+  font-weight: 700;
+  white-space: nowrap;
+
+  padding: 6px 11px;
+  border-radius: 999px;
+  cursor: pointer;
+
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.feature-badge:hover {
+  color: var(--text-soft);
+  border-color: rgba(56, 240, 204, 0.35);
+  background: rgba(56, 240, 204, 0.06);
+}
+
+.feature-badge-dot {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent);
+}
+
+.feature-badge-dot-violet {
+  background: var(--violet);
+  box-shadow: 0 0 6px rgba(164, 139, 255, 0.6);
+}
+
 @keyframes shimmerLine {
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
@@ -453,8 +505,7 @@ body::after {
    DIGEST / CALM BANNERS
    ========================================================= */
 
-.digest-banner,
-.calm-banner {
+.digest-hero {
   margin: 22px 40px 0;
   border-radius: 16px;
   border: 1px solid var(--border);
@@ -468,60 +519,208 @@ body::after {
   animation: fadeUp 0.5s var(--ease) both;
 }
 
-.digest-banner {
-  padding: 18px 22px;
-
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: center;
-  gap: 20px;
-
+.digest-hero {
+  padding: 22px 24px 20px;
   border-left: 3px solid var(--important);
 }
 
-.digest-banner-main {
+.digest-hero-head {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
 }
 
-.digest-banner-main strong {
+.digest-hero-eyebrow {
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+
+.digest-hero-title h2 {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 700;
+  color: var(--text-soft);
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.digest-hero-title strong {
   color: var(--important);
-  font-size: 26px;
+  font-size: 30px;
   font-family: var(--mono);
   text-shadow: 0 0 22px rgba(255, 193, 84, 0.45);
 }
 
-.digest-banner-main span {
-  color: var(--text-soft);
-  font-size: 13.5px;
-}
-
-.digest-banner-list {
+.digest-hero-list {
   display: flex;
-  flex-wrap: wrap;
-  gap: 9px;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
 }
 
-.digest-item {
-  padding: 8px 12px;
-  border-radius: 8px;
+.digest-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+
+  padding: 12px 14px;
+  border-radius: 10px;
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--border-soft);
-  color: var(--muted);
-  font-size: 12px;
+  border-left: 3px solid var(--border-soft);
+
+  cursor: pointer;
+  transition: background 0.15s var(--ease), border-color 0.15s var(--ease), transform 0.15s var(--ease);
 }
 
-.digest-item strong {
+.digest-card:hover {
+  background: rgba(255, 255, 255, 0.06);
+  transform: translateX(2px);
+}
+
+.digest-card-icon {
+  font-size: 12px;
+  line-height: 1.6;
+  flex-shrink: 0;
+}
+
+.digest-card-body {
+  min-width: 0;
+  flex: 1;
+}
+
+.digest-card-top {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 3px;
+}
+
+.digest-card-top strong {
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 13px;
+}
+
+.digest-card-move {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.digest-card-move.up { color: var(--high); }
+.digest-card-move.down { color: var(--watch); }
+
+.digest-card-reason {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.digest-card.band-high { border-left-color: var(--high); }
+.digest-card.band-important { border-left-color: var(--important); }
+.digest-card.band-watch { border-left-color: var(--watch); }
+.digest-card.band-normal { border-left-color: var(--normal); }
+
+.digest-hero-cta {
+  width: 100%;
+}
+
+
+/* =========================================================
+   VALIDATION / BACKTEST BANNER
+   ========================================================= */
+
+.backtest-banner {
+  margin: 18px 40px 0;
+  padding: 20px 24px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+
+  background:
+    linear-gradient(145deg, rgba(14, 30, 40, 0.75), rgba(9, 16, 27, 0.75));
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+
+  box-shadow: var(--shadow-md), var(--shadow-inset-top);
+  animation: fadeUp 0.5s var(--ease) both;
+
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 24px;
+  justify-content: space-between;
+}
+
+.backtest-head {
+  min-width: 240px;
+  max-width: 480px;
+}
+
+.backtest-head h2 {
+  margin: 4px 0 6px;
+  font-size: 15px;
+  color: var(--text-soft);
+}
+
+.backtest-head .demo-note {
+  margin: 0;
+  font-size: 11.5px;
+}
+
+.backtest-stats {
+  display: flex;
+  gap: 26px;
+  flex-wrap: wrap;
+}
+
+.backtest-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 84px;
+}
+
+.backtest-stat-value {
+  font-family: var(--mono);
+  font-size: 24px;
+  font-weight: 800;
   color: var(--text);
 }
 
-.calm-banner {
-  padding: 16px 20px;
-  color: var(--text-soft);
-  font-size: 13.5px;
-  border-left: 3px solid var(--accent);
+.backtest-stat-label {
+  margin-top: 4px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
 }
+
+.backtest-stat-precision .backtest-stat-value {
+  color: var(--accent);
+  text-shadow: 0 0 16px rgba(56, 240, 204, 0.4);
+}
+
+
 
 
 /* =========================================================
@@ -570,8 +769,17 @@ body::after {
     0 0 0 1px rgba(255, 255, 255, 0.02);
 
   transform-style: preserve-3d;
+  will-change: transform;
   transition: transform 0.5s var(--ease), box-shadow 0.5s var(--ease);
   animation: fadeUp 0.6s var(--ease) both;
+}
+
+/* While the cursor is actively driving the tilt (see app.js), swap to
+   a fast linear transition so the pane feels attached to the cursor
+   instead of lagging behind a slow ease curve. mouseleave removes
+   this class so the pane eases back to neutral smoothly instead. */
+.radar-pane.is-tilting {
+  transition: transform 0.08s linear;
 }
 
 .radar-pane:hover {
@@ -628,8 +836,10 @@ body::after {
   z-index: 10;
 
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
 }
 
 
@@ -742,6 +952,13 @@ body::after {
   display: flex;
   align-items: center;
   justify-content: center;
+
+  will-change: transform;
+  transition: transform 0.5s var(--ease);
+}
+
+.radar-view.is-tilting {
+  transition: transform 0.08s linear;
 }
 
 .radar-vignette {
@@ -750,6 +967,13 @@ body::after {
   pointer-events: none;
   z-index: 2;
   box-shadow: inset 0 0 140px rgba(0, 0, 0, 0.55);
+
+  will-change: transform;
+  transition: transform 0.5s var(--ease);
+}
+
+.radar-vignette.is-tilting {
+  transition: transform 0.08s linear;
 }
 
 #radarSvg {
@@ -828,6 +1052,23 @@ body::after {
   font-weight: 700;
   letter-spacing: -0.2px;
 
+  pointer-events: none;
+  paint-order: stroke;
+
+  stroke: #091321;
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+
+.ring-label {
+  fill: var(--muted);
+  font-family: var(--mono);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+
+  opacity: 0.55;
   pointer-events: none;
   paint-order: stroke;
 
@@ -923,6 +1164,73 @@ body::after {
 /* =========================================================
    SIDE PANEL
    ========================================================= */
+
+.side-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  flex-shrink: 0;
+
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-soft);
+
+  position: sticky;
+  top: 0;
+  z-index: 6;
+}
+
+.side-tab-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+
+  padding: 9px 10px;
+  border-radius: 9px;
+  cursor: pointer;
+
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.side-tab-btn:hover {
+  color: var(--text-soft);
+}
+
+.side-tab-btn.active {
+  color: var(--accent);
+  background:
+    linear-gradient(180deg, rgba(56, 240, 204, 0.16), rgba(56, 240, 204, 0.04));
+  box-shadow: inset 0 0 0 1px rgba(56, 240, 204, 0.28);
+}
+
+.side-tab-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+
+  border-radius: 999px;
+  background: var(--high);
+  color: #1a0508;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.side-tab-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
 
 .side-pane {
   min-width: 0;
@@ -1978,6 +2286,56 @@ select {
   gap: 11px;
 }
 
+.btn-block {
+  width: 100%;
+  justify-content: center;
+  margin-bottom: 6px;
+}
+
+.conflict-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.conflict-log {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.conflict-log li {
+  font-size: 11.5px;
+  line-height: 1.5;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-soft);
+  color: var(--muted);
+}
+
+.conflict-log li.took-effect {
+  border-left: 3px solid var(--watch);
+}
+
+.conflict-log li.superseded {
+  border-left: 3px solid var(--high);
+  color: var(--text-soft);
+}
+
+.conflict-log li strong {
+  color: var(--text);
+}
+
 
 /* =========================================================
    HIDDEN
@@ -2009,6 +2367,9 @@ select {
     max-height: none;
     overflow-y: visible;
     height: auto;
+  }
+
+  .side-tab-panel {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -2047,23 +2408,37 @@ select {
     display: none;
   }
 
+  .feature-badges {
+    display: none;
+  }
+
   #radarSvg {
     width: 94%;
     height: 94%;
   }
 
-  .side-pane {
+  .side-tab-panel {
     grid-template-columns: 1fr;
   }
 
-  .digest-banner,
-  .calm-banner {
+  .digest-hero,
+  .backtest-banner {
     margin-left: 12px;
     margin-right: 12px;
   }
 
-  .digest-banner {
-    grid-template-columns: 1fr;
+  .digest-hero-head {
+    flex-direction: column;
+  }
+
+  .backtest-banner {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .backtest-stats {
+    width: 100%;
+    justify-content: space-between;
   }
 
   .panel {

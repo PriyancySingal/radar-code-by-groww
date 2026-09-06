@@ -4,6 +4,7 @@ const { SYMBOLS } = require("./symbols");
 const eventEngine = require("./eventEngine");
 const timelineEngine = require("./timelineEngine");
 const alertsEngine = require("./alertsEngine");
+const backtestEngine = require("./backtestEngine");
 
 const TICK_MS = 2000; // accelerated vs real markets — a demo can't wait for real volatility
 const subscribers = new Set(); // SSE response objects
@@ -154,7 +155,7 @@ function tick() {
       marketReturn,
       dormancyMinutes,
       distanceToHighPct,
-      distanceToLowPct: -distanceToLowPct, // negative distance-to-low means "at/above" — keep low crossing symmetric
+      distanceToLowPct, // distance ABOVE the 52-week low (>=0), mirrors distanceToHighPct's semantics
       priceWarm: st.priceStats.isWarm(),
       volumeWarm: st.volumeStats.isWarm(),
     });
@@ -191,6 +192,7 @@ function tick() {
     // ------------------------------------------------------------
     if (displayBand !== prevBand) {
       timelineEngine.recordEvent(meta.symbol, displayBand, timelineTextFor(displayBand, attention.evidence));
+      backtestEngine.onBandChange(meta.symbol, prevBand, displayBand, st.price);
     }
 
     // ------------------------------------------------------------
@@ -251,6 +253,10 @@ function tick() {
     updates.push(update);
     updatesBySymbol.set(meta.symbol, update);
   }
+
+  // 3b) Live validation — resolve any signals whose evaluation window
+  // has elapsed now that this tick's prices are final.
+  backtestEngine.evaluateTick((symbol) => symbolState.get(symbol)?.price);
 
   broadcast({ type: "TICK", t: now, symbols: updates, sectorReturnAvg, marketReturnAvg });
 

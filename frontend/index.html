@@ -6,12 +6,9 @@
 
   <title>Radar · Code by Groww</title>
 
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link
-    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap"
-    rel="stylesheet"
-  />
+  <!-- Self-hosted fonts (Inter + JetBrains Mono) — no external font
+       requests, so the UI never flashes unstyled on flaky wifi. -->
+  <link rel="stylesheet" href="fonts.css" />
 
   <link rel="stylesheet" href="style.css" />
 </head>
@@ -54,6 +51,20 @@
 
     <div class="topbar-right">
 
+      <div class="feature-badges">
+
+        <button class="feature-badge" data-jump-tab="alerts" type="button">
+          <span class="feature-badge-dot"></span>
+          Smart Alerts active
+        </button>
+
+        <button class="feature-badge" data-jump-tab="demo" type="button">
+          <span class="feature-badge-dot feature-badge-dot-violet"></span>
+          Conflict simulator available
+        </button>
+
+      </div>
+
       <div
         class="conn-status"
         id="connStatus">
@@ -75,30 +86,43 @@
 
   <div
     id="digestBanner"
-    class="digest-banner hidden">
+    class="digest-hero hidden">
 
-    <div class="digest-banner-main">
+    <div class="digest-hero-head">
 
-      <strong id="digestCount">
-        0
-      </strong>
+      <div class="digest-hero-title">
 
-      <span id="digestText">
-        stocks moved outside their normal range while you were away
-      </span>
+        <span class="digest-hero-eyebrow">
+          While you were away
+        </span>
+
+        <h2>
+          <strong id="digestCount">0</strong>
+          <span id="digestText">things need your attention</span>
+        </h2>
+
+      </div>
+
+      <button
+        class="btn btn-ghost"
+        id="digestDismiss">
+
+        Mark all as seen
+
+      </button>
 
     </div>
 
     <div
-      class="digest-banner-list"
+      class="digest-hero-list"
       id="digestList">
     </div>
 
     <button
-      class="btn btn-ghost"
-      id="digestDismiss">
+      class="btn btn-primary digest-hero-cta"
+      id="digestReviewBtn">
 
-      Mark all as seen
+      Review <span id="digestReviewCount">0</span> signal<span id="digestReviewPlural">s</span> →
 
     </button>
 
@@ -106,16 +130,51 @@
 
 
   <!-- =========================================================
-       CALM STATE
+       VALIDATION / BACKTEST
   ========================================================== -->
 
   <div
-    id="calmBanner"
-    class="calm-banner hidden">
+    id="backtestBanner"
+    class="backtest-banner hidden">
 
-    <span id="calmText">
-      All caught up — nothing needs you right now.
-    </span>
+    <div class="backtest-head">
+
+      <span class="eyebrow">Validation</span>
+
+      <h2>Is the Attention Score actually predictive?</h2>
+
+      <p class="demo-note" id="backtestNote">
+        Live, running total — every High-attention signal RADAR has raised
+        since this server started is checked automatically: did price move
+        &gt;<span id="backtestThreshold">1.2</span>% within the next
+        <span id="backtestWindow">~30s</span> of simulated time?
+      </p>
+
+    </div>
+
+    <div class="backtest-stats">
+
+      <div class="backtest-stat">
+        <span class="backtest-stat-value" id="statEvaluated">0</span>
+        <span class="backtest-stat-label">Signals evaluated</span>
+      </div>
+
+      <div class="backtest-stat">
+        <span class="backtest-stat-value" id="statHighAttention">0</span>
+        <span class="backtest-stat-label">High-attention</span>
+      </div>
+
+      <div class="backtest-stat">
+        <span class="backtest-stat-value" id="statConfirmed">0</span>
+        <span class="backtest-stat-label">Confirmed moves</span>
+      </div>
+
+      <div class="backtest-stat backtest-stat-precision">
+        <span class="backtest-stat-value" id="statPrecision">—</span>
+        <span class="backtest-stat-label">Precision</span>
+      </div>
+
+    </div>
 
   </div>
 
@@ -276,6 +335,25 @@
     ======================================================== -->
 
     <aside class="side-pane">
+
+      <div class="side-tabs" role="tablist">
+
+        <button class="side-tab-btn active" data-tab="monitor" type="button">
+          Monitor
+        </button>
+
+        <button class="side-tab-btn" data-tab="alerts" type="button">
+          Alerts
+          <span class="side-tab-badge hidden" id="sideTabAlertsBadge">0</span>
+        </button>
+
+        <button class="side-tab-btn" data-tab="demo" type="button">
+          Demo
+        </button>
+
+      </div>
+
+      <div class="side-tab-panel" data-tab-panel="monitor">
 
 
       <!-- =====================================================
@@ -594,6 +672,10 @@
 
       </div>
 
+      </div>
+
+      <div class="side-tab-panel hidden" data-tab-panel="alerts">
+
 
       <!-- =====================================================
            SMART ALERTS
@@ -655,6 +737,10 @@
 
       </div>
 
+      </div>
+
+      <div class="side-tab-panel hidden" data-tab-panel="demo">
+
 
       <!-- =====================================================
            DEMO CONTROL
@@ -690,6 +776,20 @@
         </p>
 
 
+        <button
+          class="btn btn-signal btn-block guided-demo-trigger"
+          data-guided-demo-trigger
+          id="guidedDemoBtn">
+
+          <span class="button-pulse"></span>
+
+          ▶ Play guided demo
+
+        </button>
+
+        <p class="demo-note" id="guidedDemoStatus" data-guided-demo-status></p>
+
+
         <div class="demo-row">
 
           <select id="shockSymbol">
@@ -722,6 +822,63 @@
           </button>
 
         </div>
+
+      </div>
+
+
+      <!-- =====================================================
+           CONFLICT SIMULATOR — devices editing the same watchlist
+      ====================================================== -->
+
+      <div class="panel demo-panel">
+
+        <div class="panel-heading">
+
+          <div>
+
+            <span class="eyebrow">
+              MULTI-DEVICE
+            </span>
+
+            <h2>
+              Conflict simulator
+            </h2>
+
+          </div>
+
+          <label class="conflict-toggle">
+            <input type="checkbox" id="deviceBOffline" />
+            Device B offline
+          </label>
+
+        </div>
+
+        <p class="demo-note">
+
+          This device (Device A) edits your watchlist live.
+          Take "Device B" offline, queue conflicting edits on
+          the same symbol, then sync — RADAR resolves it with
+          an add-wins rule instead of silently picking whichever
+          request happened to arrive last.
+
+        </p>
+
+        <div class="demo-row">
+
+          <select id="conflictSymbol"></select>
+
+          <button class="btn btn-ghost" id="conflictAddBtn">Device B: add</button>
+          <button class="btn btn-ghost" id="conflictRemoveBtn">Device B: remove</button>
+
+          <button class="btn btn-signal" id="conflictSyncBtn" disabled>
+            Sync Device B (<span id="conflictQueueCount">0</span>)
+          </button>
+
+        </div>
+
+        <ul class="conflict-log" id="conflictLog"></ul>
+
+      </div>
 
       </div>
 

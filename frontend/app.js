@@ -217,9 +217,27 @@
       radarSvg.appendChild(circle);
     });
 
+    // Ring labels — one per attention band, placed along a single
+    // diagonal so they read top-to-bottom exactly like the bands
+    // themselves (outer ring = calmest band, inner ring = most urgent).
+    const ringLabelAngle = (200 * Math.PI) / 180;
+    [
+      { r: 250, text: "NORMAL" },
+      { r: 187, text: "WORTH WATCHING" },
+      { r: 125, text: "IMPORTANT" },
+      { r: 62, text: "HIGH ATTENTION" },
+    ].forEach(({ r, text }) => {
+      const label = svgElement("text");
+      label.setAttribute("x", cx + r * Math.cos(ringLabelAngle));
+      label.setAttribute("y", cy + r * Math.sin(ringLabelAngle));
+      label.setAttribute("text-anchor", "middle");
+      label.setAttribute("class", "ring-label");
+      label.textContent = text;
+      radarSvg.appendChild(label);
+    });
+
     // Crosshairs
     [
-      [cx - 250, cy, cx + 250, cy],
       [cx, cy - 250, cx, cy + 250],
     ].forEach(([x1, y1, x2, y2]) => {
       const line = svgElement("line");
@@ -669,11 +687,121 @@
   }
 
   /* ==========================================================
+     SIDEBAR TABS
+
+     The sidebar used to be six panels stacked in one internally
+     scrolling column — Smart Alerts, the guided demo, and the
+     conflict simulator sat below the fold where a time-pressed
+     judge would likely never scroll to find them. Splitting it
+     into tabs means every section is one click away, always.
+  ========================================================== */
+
+  const sideTabButtons = Array.from(document.querySelectorAll(".side-tab-btn"));
+  const sideTabPanels = Array.from(document.querySelectorAll(".side-tab-panel"));
+
+  function switchSidebarTab(tabName) {
+    sideTabButtons.forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.tab === tabName);
+    });
+    sideTabPanels.forEach((panel) => {
+      panel.classList.toggle("hidden", panel.dataset.tabPanel !== tabName);
+    });
+  }
+
+  sideTabButtons.forEach((btn) => {
+    btn.addEventListener("click", () => switchSidebarTab(btn.dataset.tab));
+  });
+
+  // Topbar feature badges ("Smart Alerts active", "Conflict simulator
+  // available") exist so those features are obvious without ever
+  // opening the sidebar — clicking one jumps straight to its tab.
+  document.querySelectorAll("[data-jump-tab]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const tabName = btn.dataset.jumpTab;
+      switchSidebarTab(tabName);
+      const target = document.querySelector(`.side-tab-panel[data-tab-panel="${tabName}"]`);
+      if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  });
+
+  /* ==========================================================
+     3D TILT / PARALLAX
+
+     The radar pane tilts toward the cursor (like a physical
+     console panel) while its contents (rings + blips) drift
+     opposite to the cursor at a shallower depth, giving a real
+     sense of a layered 3D dish rather than a flat 2D graphic.
+     The always-on-top header/legend never moves, which is what
+     sells the depth illusion. Disabled for prefers-reduced-motion.
+  ========================================================== */
+
+  const radarPaneEl = document.querySelector(".radar-pane");
+  const radarViewEl = document.getElementById("radarView");
+  const radarVignetteEl = document.querySelector(".radar-vignette");
+  const prefersReducedMotion =
+    window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  if (radarPaneEl && !prefersReducedMotion) {
+    const MAX_TILT_DEG = 5;
+    const MAX_PARALLAX_PX = 12;
+    const MAX_VIGNETTE_PX = 5;
+
+    let tiltRaf = null;
+
+    function applyTilt(clientX, clientY) {
+      const rect = radarPaneEl.getBoundingClientRect();
+
+      // Normalize cursor position within the pane to -1..1 on each axis.
+      const nx = ((clientX - rect.left) / rect.width) * 2 - 1;
+      const ny = ((clientY - rect.top) / rect.height) * 2 - 1;
+
+      const rotateY = nx * MAX_TILT_DEG;
+      const rotateX = -ny * MAX_TILT_DEG;
+
+      radarPaneEl.style.transform = `rotateX(${rotateX.toFixed(2)}deg) rotateY(${rotateY.toFixed(2)}deg)`;
+
+      if (radarViewEl) {
+        radarViewEl.style.transform =
+          `translate3d(${(-nx * MAX_PARALLAX_PX).toFixed(1)}px, ${(-ny * MAX_PARALLAX_PX).toFixed(1)}px, 0)`;
+      }
+
+      if (radarVignetteEl) {
+        radarVignetteEl.style.transform =
+          `translate3d(${(nx * MAX_VIGNETTE_PX).toFixed(1)}px, ${(ny * MAX_VIGNETTE_PX).toFixed(1)}px, 0)`;
+      }
+    }
+
+    function setTilting(isTilting) {
+      radarPaneEl.classList.toggle("is-tilting", isTilting);
+      if (radarViewEl) radarViewEl.classList.toggle("is-tilting", isTilting);
+      if (radarVignetteEl) radarVignetteEl.classList.toggle("is-tilting", isTilting);
+    }
+
+    radarPaneEl.addEventListener("mousemove", (e) => {
+      setTilting(true);
+      if (tiltRaf) cancelAnimationFrame(tiltRaf);
+      tiltRaf = requestAnimationFrame(() => applyTilt(e.clientX, e.clientY));
+    });
+
+    radarPaneEl.addEventListener("mouseleave", () => {
+      setTilting(false);
+      if (tiltRaf) cancelAnimationFrame(tiltRaf);
+      radarPaneEl.style.transform = "";
+      if (radarViewEl) radarViewEl.style.transform = "";
+      if (radarVignetteEl) radarVignetteEl.style.transform = "";
+    });
+  }
+
+  /* ==========================================================
      EXPLAINABILITY
   ========================================================== */
 
   async function showExplain(symbol) {
     selectedSymbol = symbol;
+
+    // A signal was just opened — make sure the panel showing it
+    // isn't hidden behind the Alerts or Demo tab.
+    switchSidebarTab("monitor");
 
     if (explainRequestInFlight) {
       explainRefreshPending = true;
@@ -795,52 +923,108 @@
       const data = await api(`/api/digest/${encodeURIComponent(USER_ID)}`);
 
       const banner = document.getElementById("digestBanner");
-      const calm = document.getElementById("calmBanner");
-      if (!banner || !calm) return;
+      if (!banner) return;
 
       if (data.count > 0) {
         const digestCount = document.getElementById("digestCount");
         const digestText = document.getElementById("digestText");
         const list = document.getElementById("digestList");
+        const reviewBtn = document.getElementById("digestReviewBtn");
+        const reviewCount = document.getElementById("digestReviewCount");
+        const reviewPlural = document.getElementById("digestReviewPlural");
 
         if (digestCount) digestCount.textContent = data.count;
         if (digestText) {
           digestText.textContent =
-            data.count === 1
-              ? "stock moved outside its normal range while you were away"
-              : "stocks moved outside their normal range while you were away";
+            data.count === 1 ? "thing needs your attention" : "things need your attention";
         }
+        if (reviewCount) reviewCount.textContent = data.count;
+        if (reviewPlural) reviewPlural.textContent = data.count === 1 ? "" : "s";
+
+        const changes = data.changes || [];
+        const topChanges = changes.slice(0, 5);
+
+        const BAND_CLASS = {
+          HIGH_ATTENTION: "band-high",
+          IMPORTANT: "band-important",
+          WORTH_WATCHING: "band-watch",
+          NORMAL: "band-normal",
+        };
+
+        const BAND_ICON = {
+          HIGH_ATTENTION: "🔴",
+          IMPORTANT: "🟠",
+          WORTH_WATCHING: "🟡",
+          NORMAL: "⚪",
+        };
 
         if (list) {
           list.innerHTML = "";
-          for (const ch of (data.changes || []).slice(0, 5)) {
-            const div = document.createElement("div");
-            div.className = "digest-item";
-            const strong = document.createElement("strong");
-            strong.textContent = ch.symbol;
-            div.appendChild(strong);
+
+          for (const ch of topChanges) {
+            const card = document.createElement("div");
+            card.className = `digest-card ${BAND_CLASS[ch.currentBand] || ""}`;
+            card.title = "Click to see why";
+            card.addEventListener("click", () => showExplain(ch.symbol));
+
+            const moveSign = ch.priceDeltaPct > 0 ? "+" : "";
+            const moveClass =
+              ch.direction === "up" ? "up" : ch.direction === "down" ? "down" : "";
+
+            const topEvidence = (ch.evidence || [])[0];
+            const reason = (topEvidence && topEvidence.text) || ch.narrative || "Meaningful market behavior changed.";
+
+            const icon = document.createElement("span");
+            icon.className = "digest-card-icon";
+            icon.textContent = BAND_ICON[ch.currentBand] || "⚪";
+            card.appendChild(icon);
+
+            const body = document.createElement("div");
+            body.className = "digest-card-body";
+
+            const top = document.createElement("div");
+            top.className = "digest-card-top";
+
+            const symbolEl = document.createElement("strong");
+            symbolEl.textContent = ch.symbol;
+            top.appendChild(symbolEl);
+
             if (ch.isPortfolio) {
               const badge = document.createElement("span");
               badge.className = "portfolio-badge";
-              badge.style.marginLeft = "6px";
               badge.textContent = "PORTFOLIO";
-              div.appendChild(badge);
+              top.appendChild(badge);
             }
-            div.appendChild(
-              document.createTextNode(` — ${ch.narrative || "Meaningful market behavior changed."}`)
-            );
-            list.appendChild(div);
+
+            const move = document.createElement("span");
+            move.className = `digest-card-move ${moveClass}`;
+            move.textContent = `${moveSign}${ch.priceDeltaPct}% move`;
+            top.appendChild(move);
+
+            body.appendChild(top);
+
+            const reasonEl = document.createElement("p");
+            reasonEl.className = "digest-card-reason";
+            reasonEl.textContent = reason;
+            body.appendChild(reasonEl);
+
+            card.appendChild(body);
+            list.appendChild(card);
           }
         }
 
+        if (reviewBtn) {
+          reviewBtn.onclick = () => {
+            const first = topChanges[0];
+            if (first) showExplain(first.symbol);
+            const explainPanel = document.getElementById("explainPanel");
+            if (explainPanel) explainPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+          };
+        }
+
         banner.classList.remove("hidden");
-        calm.classList.add("hidden");
       } else {
         banner.classList.add("hidden");
-        const count = items.size;
-        const calmText = document.getElementById("calmText");
-        if (calmText) calmText.textContent = `${count} stocks reviewed — nothing needs you right now.`;
-        calm.classList.remove("hidden");
       }
     } catch (error) {
       console.error("Digest request failed:", error);
@@ -1004,6 +1188,199 @@
   }
 
   /* ==========================================================
+     GUIDED DEMO — sequences existing shocks so a judge watches
+     RADAR detect -> reason -> prioritize -> explain without
+     anyone narrating clicks. Reuses /api/simulate/shock; no new
+     backend behavior, just a scripted sequence of it.
+  ========================================================== */
+
+  const guidedDemoButtons = Array.from(document.querySelectorAll("[data-guided-demo-trigger]"));
+  const guidedDemoStatusEls = Array.from(document.querySelectorAll("[data-guided-demo-status]"));
+  let guidedDemoRunning = false;
+
+  function setGuidedDemoStatus(text) {
+    guidedDemoStatusEls.forEach((el) => {
+      el.textContent = text;
+    });
+  }
+
+  function setGuidedDemoButtonsDisabled(disabled) {
+    guidedDemoButtons.forEach((btn) => {
+      btn.disabled = disabled;
+      btn.classList.toggle("is-running", disabled);
+    });
+  }
+
+  const GUIDED_DEMO_SCRIPT = [
+    { delay: 300, status: "Market is calm…" },
+    {
+      delay: 3500,
+      status: "Unusual volume building on INFY…",
+      shock: { symbol: "INFY", direction: "up", magnitude: 0.03, volumeMultiplier: 5 },
+    },
+    {
+      delay: 6000,
+      status: "Price shock on RELIANCE…",
+      shock: { symbol: "RELIANCE", direction: "up", magnitude: 0.06, volumeMultiplier: 7 },
+    },
+    {
+      delay: 6000,
+      status: "Sector divergence on TCS…",
+      shock: { symbol: "TCS", direction: "down", magnitude: 0.045, volumeMultiplier: 6 },
+    },
+    { delay: 4000, status: "Attention scores updating — open a symbol to see \"why\"." },
+    { delay: 4000, status: "Demo finished — this is \"what changed while you were away\"." },
+  ];
+
+  async function runGuidedDemo() {
+    if (guidedDemoRunning) return;
+    guidedDemoRunning = true;
+    setGuidedDemoButtonsDisabled(true);
+
+    for (const step of GUIDED_DEMO_SCRIPT) {
+      await new Promise((r) => setTimeout(r, step.delay));
+      setGuidedDemoStatus(step.status);
+      if (step.shock) {
+        try {
+          await api("/api/simulate/shock", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(step.shock),
+          });
+        } catch (error) {
+          console.error("Guided demo shock failed:", error);
+        }
+      }
+    }
+
+    guidedDemoRunning = false;
+    setGuidedDemoButtonsDisabled(false);
+  }
+
+  guidedDemoButtons.forEach((btn) => {
+    btn.addEventListener("click", runGuidedDemo);
+  });
+
+  /* ==========================================================
+     CONFLICT SIMULATOR — two devices editing the same watchlist.
+     Device A is this tab's normal Add/Remove UI, applied live.
+     Device B queues ops locally while "offline"; Sync flushes them
+     against /api/sync, which resolves via the add-wins CRDT in
+     backend/syncEngine.js. See that file for the merge rule.
+  ========================================================== */
+
+  const DEVICE_A = "device-a-" + Math.random().toString(36).slice(2, 7);
+  const DEVICE_B = "device-b-simulated";
+  let deviceBQueue = []; // { type, symbol, ts }
+
+  const deviceBOffline = document.getElementById("deviceBOffline");
+  const conflictSymbol = document.getElementById("conflictSymbol");
+  const conflictAddBtn = document.getElementById("conflictAddBtn");
+  const conflictRemoveBtn = document.getElementById("conflictRemoveBtn");
+  const conflictSyncBtn = document.getElementById("conflictSyncBtn");
+  const conflictQueueCount = document.getElementById("conflictQueueCount");
+  const conflictLog = document.getElementById("conflictLog");
+
+  async function populateConflictSymbols() {
+    if (!conflictSymbol) return;
+    try {
+      const data = await api("/api/symbols");
+      conflictSymbol.innerHTML = "";
+      for (const s of data.symbols || []) {
+        const opt = document.createElement("option");
+        opt.value = s.symbol;
+        opt.textContent = s.symbol;
+        conflictSymbol.appendChild(opt);
+      }
+    } catch (error) {
+      console.error("Loading conflict-simulator symbols failed:", error);
+    }
+  }
+
+  function updateConflictQueueUI() {
+    if (conflictQueueCount) conflictQueueCount.textContent = deviceBQueue.length;
+    if (conflictSyncBtn) conflictSyncBtn.disabled = deviceBQueue.length === 0;
+  }
+
+  function logConflict(text, cls) {
+    if (!conflictLog) return;
+    const li = document.createElement("li");
+    li.textContent = text;
+    if (cls) li.className = cls;
+    conflictLog.prepend(li);
+    while (conflictLog.children.length > 8) conflictLog.removeChild(conflictLog.lastChild);
+  }
+
+  function queueOrSendDeviceB(type) {
+    const symbol = conflictSymbol?.value;
+    if (!symbol) return;
+    const ts = Date.now();
+
+    if (deviceBOffline?.checked) {
+      deviceBQueue.push({ kind: "watchlist", type, symbol, ts });
+      updateConflictQueueUI();
+      logConflict(`Device B (offline): queued ${type} ${symbol} — will sync with timestamp ${new Date(ts).toLocaleTimeString()}.`);
+      return;
+    }
+
+    // Not offline: applies immediately, same as any live device would.
+    (async () => {
+      try {
+        await api("/api/sync/" + encodeURIComponent(USER_ID), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ deviceId: DEVICE_B, ops: [{ kind: "watchlist", type, symbol, ts }] }),
+        });
+        logConflict(`Device B: ${type} ${symbol} applied immediately.`, "took-effect");
+        await loadWatchlist();
+      } catch (error) {
+        console.error("Device B op failed:", error);
+      }
+    })();
+  }
+
+  if (conflictAddBtn) conflictAddBtn.addEventListener("click", () => queueOrSendDeviceB("add"));
+  if (conflictRemoveBtn) conflictRemoveBtn.addEventListener("click", () => queueOrSendDeviceB("remove"));
+
+  if (conflictSyncBtn) {
+    conflictSyncBtn.addEventListener("click", async () => {
+      if (deviceBQueue.length === 0) return;
+      const ops = deviceBQueue;
+      deviceBQueue = [];
+      updateConflictQueueUI();
+
+      try {
+        const result = await api("/api/sync/" + encodeURIComponent(USER_ID), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ deviceId: DEVICE_B, ops }),
+        });
+
+        for (const r of result.results || []) {
+          if (r.error) {
+            logConflict(`Device B: ${r.symbol} — ${r.error}`, "superseded");
+            continue;
+          }
+          if (r.tookEffect) {
+            logConflict(`Device B: ${r.type} ${r.symbol} synced and applied.`, "took-effect");
+          } else {
+            logConflict(
+              `Device B: ${r.type} ${r.symbol} was superseded — a newer edit from this device already decided it's ` +
+                (r.present ? "in the watchlist." : "removed."),
+              "superseded"
+            );
+          }
+        }
+
+        await loadWatchlist();
+      } catch (error) {
+        console.error("Sync failed:", error);
+        logConflict("Sync failed — check the server.", "superseded");
+      }
+    });
+  }
+
+  /* ==========================================================
      SMART ALERTS — rules + live feed
   ========================================================== */
 
@@ -1062,8 +1439,15 @@
     const countEl = document.getElementById("alertFeedCount");
     if (!feed) return;
 
+    const count = alerts?.length || 0;
     feed.innerHTML = "";
-    if (countEl) countEl.textContent = alerts?.length || 0;
+    if (countEl) countEl.textContent = count;
+
+    const badge = document.getElementById("sideTabAlertsBadge");
+    if (badge) {
+      badge.textContent = count;
+      badge.classList.toggle("hidden", count === 0);
+    }
 
     if (!Array.isArray(alerts) || alerts.length === 0) {
       const li = document.createElement("li");
@@ -1236,6 +1620,44 @@
   }
 
   /* ==========================================================
+     LIVE VALIDATION / BACKTEST
+
+     Polls the running precision stats computed in backtestEngine.js
+     on the backend. Nothing here is fabricated on the frontend —
+     this just displays numbers the server has actually accumulated
+     since it started.
+  ========================================================== */
+
+  async function loadBacktest() {
+    try {
+      const data = await api("/api/backtest");
+
+      const banner = document.getElementById("backtestBanner");
+      if (!banner) return;
+
+      const elEvaluated = document.getElementById("statEvaluated");
+      const elHigh = document.getElementById("statHighAttention");
+      const elConfirmed = document.getElementById("statConfirmed");
+      const elPrecision = document.getElementById("statPrecision");
+      const elThreshold = document.getElementById("backtestThreshold");
+
+      if (elEvaluated) elEvaluated.textContent = data.evaluated;
+      if (elHigh) elHigh.textContent = data.highAttentionSignals;
+      if (elConfirmed) elConfirmed.textContent = data.confirmedMoves;
+      if (elPrecision) {
+        elPrecision.textContent = data.precision === null ? "—" : `${data.precision}%`;
+      }
+      if (elThreshold && typeof data.thresholdPct === "number") {
+        elThreshold.textContent = data.thresholdPct;
+      }
+
+      banner.classList.remove("hidden");
+    } catch (error) {
+      console.error("Backtest request failed:", error);
+    }
+  }
+
+  /* ==========================================================
      INITIALIZATION
   ========================================================== */
 
@@ -1244,12 +1666,15 @@
       buildRadarStatic();
       await populateSymbolPickers();
       await populateEventTypes();
+      await populateConflictSymbols();
       // Portfolio before watchlist so the watchlist's portfolio-dot
       // badges render correctly on first paint.
       await loadPortfolio();
       await loadWatchlist();
       await loadDigest();
       await loadAlerts();
+      await loadBacktest();
+      setInterval(loadBacktest, 5000);
       connectStream();
     } catch (error) {
       console.error("RADAR initialization failed:", error);

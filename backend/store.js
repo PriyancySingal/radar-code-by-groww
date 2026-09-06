@@ -2,6 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const { RollingStats } = require("./stats");
 const { SYMBOLS } = require("./symbols");
+const syncEngine = require("./syncEngine");
 
 const PERSIST_PATH = path.join(__dirname, "..", "data", "persist.json");
 const HISTORY_LIMIT = 180; // ~ a few minutes of ticks at demo speed, enough for a sparkline
@@ -129,6 +130,30 @@ function seedDefaults(userId) {
   seedDefaultPortfolio(userId);
 }
 
+// ---- CRDT-backed mutation helpers ----
+//
+// Every watchlist/portfolio mutation — whether it comes from the normal
+// UI ("primary" device) or from the conflict-simulator's queued "device
+// B" — goes through syncEngine.applyOp so there is exactly ONE rule for
+// what happens when two edits disagree. See syncEngine.js for the model.
+
+function applyWatchlistOp(userId, op) {
+  const set = ensureWatchlist(userId);
+  return syncEngine.applyOp("watchlist", userId, set, op);
+}
+
+function applyPortfolioOp(userId, op) {
+  const set = ensurePortfolio(userId);
+  const result = syncEngine.applyOp("portfolio", userId, set, op);
+  // Product rule preserved from before: a held symbol is always also
+  // watched. Only add — never auto-remove from the watchlist, since a
+  // user may still want to keep watching something they sold.
+  if (result.type === "add" && result.present) {
+    applyWatchlistOp(userId, { type: "add", symbol: op.symbol, ts: op.ts, device: op.device });
+  }
+  return result;
+}
+
 function persist() {
   const data = {
     watchlists: Object.fromEntries([...watchlists.entries()].map(([u, set]) => [u, [...set]])),
@@ -137,6 +162,12 @@ function persist() {
       [...lastSeen.entries()].map(([u, map]) => [u, Object.fromEntries(map.entries())])
     ),
     alertRules: Object.fromEntries(alertRules.entries()),
+    // Raw CRDT records (add/remove timestamps per symbol per user) so a
+    // server restart doesn't lose conflict-resolution history — without
+    // this, a delayed op replayed after restart could wrongly "win"
+    // against an edit that actually happened after it.
+    watchlistCRDT: syncEngine.allSnapshots("watchlist"),
+    portfolioCRDT: syncEngine.allSnapshots("portfolio"),
   };
   fs.writeFile(PERSIST_PATH, JSON.stringify(data, null, 2), () => {});
 }
@@ -156,6 +187,12 @@ function load() {
     }
     for (const [u, rules] of Object.entries(data.alertRules || {})) {
       alertRules.set(u, { ...DEFAULT_ALERT_RULES, ...rules });
+    }
+    for (const [u, records] of Object.entries(data.watchlistCRDT || {})) {
+      syncEngine.loadSnapshot("watchlist", u, records);
+    }
+    for (const [u, records] of Object.entries(data.portfolioCRDT || {})) {
+      syncEngine.loadSnapshot("portfolio", u, records);
     }
   } catch (e) {
     // no persisted state yet — fine, fresh start
@@ -178,6 +215,10 @@ module.exports = {
   seedDefaults,
   persist,
   HISTORY_LIMIT,
+
+  // CRDT-backed sync
+  applyWatchlistOp,
+  applyPortfolioOp,
 
   // Smart alerts
   ensureAlertRules,
