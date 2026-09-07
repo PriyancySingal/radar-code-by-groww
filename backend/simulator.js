@@ -1,4 +1,5 @@
-const { symbolState, HISTORY_LIMIT, watchlists } = require("./store");
+const store = require("./store");
+const { symbolState, HISTORY_LIMIT, watchlists, advanceFeed, feedView, resetMarketState } = store;
 const { computeAttentionScore, bandFor } = require("./attentionEngine");
 const { SYMBOLS } = require("./symbols");
 const eventEngine = require("./eventEngine");
@@ -37,6 +38,7 @@ const EVIDENCE_LABEL = {
   MARKET_DIVERGENCE: "Market-wide move",
   DORMANCY_BREAK: "Dormancy break",
   THRESHOLD: "Threshold breach",
+  VOLATILITY_BAND: "Volatility band break",
 };
 
 function gaussianRandom() {
@@ -130,6 +132,17 @@ function tick() {
     st.priceStats.update(ret);
     const priceZ = st.priceStats.zScore(ret);
 
+    // Volatility-band break input: z-score of the current price LEVEL
+    // against its own rolling mean/stdDev (Bollinger-style), separate
+    // from priceStats above which tracks RETURNS.
+    st.priceLevelStats.update(st.price);
+    const volatilityBandWarm = st.priceLevelStats.isWarm();
+    const bandStdDev = st.priceLevelStats.stdDev();
+    const volatilityBandZ =
+      volatilityBandWarm && bandStdDev > 1e-9
+        ? (st.price - st.priceLevelStats.mean) / bandStdDev
+        : 0;
+
     const baseVolume = 100000 * (meta.basePrice > 3000 ? 0.6 : 1.4); // cheaper stocks trade more shares
     const volume = Math.round(baseVolume * volumeMultiplier);
     st.volumeStats.update(volume);
@@ -156,6 +169,8 @@ function tick() {
       dormancyMinutes,
       distanceToHighPct,
       distanceToLowPct, // distance ABOVE the 52-week low (>=0), mirrors distanceToHighPct's semantics
+      volatilityBandZ,
+      volatilityBandWarm,
       priceWarm: st.priceStats.isWarm(),
       volumeWarm: st.volumeStats.isWarm(),
     });
@@ -250,7 +265,26 @@ function tick() {
       weekLow: Number(st.weekLow.toFixed(2)),
     };
 
-    updates.push(update);
+    // ------------------------------------------------------------
+    // FEED FRESHNESS SIMULATION (doc §10)
+    //
+    // Detection itself is never delayed — `updatesBySymbol` below (what
+    // alerts/digest/backtest act on) always reflects the true tick.
+    // Only the DISPLAY payload broadcast to the frontend freezes on the
+    // last confirmed print while a symbol's simulated feed is lagging,
+    // so a Delayed/Stale badge always sits next to a value that's
+    // actually frozen — not next to a number still visibly changing.
+    // ------------------------------------------------------------
+    advanceFeed(meta.symbol, () => ({ ...update }), now);
+    const feed = feedView(meta.symbol, now);
+    update.feedStatus = feed.status;
+    update.dataAgeSeconds = feed.ageSeconds;
+
+    const displayUpdate = feed.frozen
+      ? { ...feed.frozen, feedStatus: feed.status, dataAgeSeconds: feed.ageSeconds }
+      : update;
+
+    updates.push(displayUpdate);
     updatesBySymbol.set(meta.symbol, update);
   }
 
@@ -273,4 +307,21 @@ function start() {
   setInterval(tick, TICK_MS);
 }
 
-module.exports = { start, subscribers, triggerShock, TICK_MS };
+// ---- Demo-safe scenario reset (doc §12) ----
+//
+// "Reset the scenario so every judge sees the same reliable product
+// behaviour." Clears pending shocks and every derived-state module
+// (market prices/attention/feed freshness, signal timeline, live
+// backtest, alert cooldowns) back to a clean start, then tells every
+// connected client immediately via SSE instead of waiting for a judge
+// to notice on the next tick.
+function resetScenario() {
+  pendingShocks.clear();
+  resetMarketState();
+  backtestEngine.reset();
+  timelineEngine.reset();
+  alertsEngine.resetCooldowns();
+  broadcast({ type: "RESET", t: Date.now() });
+}
+
+module.exports = { start, subscribers, triggerShock, resetScenario, TICK_MS };

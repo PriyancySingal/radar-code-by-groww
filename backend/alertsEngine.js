@@ -16,7 +16,7 @@
 // A cooldown prevents the same symbol from re-alerting every tick while
 // a condition continues to hold.
 
-const { watchlists, ensureAlertRules, pushAlert } = require("./store");
+const { watchlists, ensureAlertRules, pushAlert, ensureReferenceLevels } = require("./store");
 
 const COOLDOWN_MS = 45000;
 
@@ -66,6 +66,17 @@ function evaluateAlerts(userId, updatesBySymbol) {
       );
     }
 
+    // User-defined reference level (doc §4's "alert me at ₹1,500") —
+    // personal to this user, so it lives here as an alert condition
+    // rather than in the shared Attention Score.
+    const refLevel = ensureReferenceLevels(userId).get(symbol);
+    if (Number.isFinite(refLevel) && refLevel > 0 && Number.isFinite(upd.price)) {
+      const proximityPct = (Math.abs(upd.price - refLevel) / refLevel) * 100;
+      if (proximityPct <= 1) {
+        reasons.push(`Within 1% of your ₹${refLevel} reference level (now ₹${upd.price.toFixed(2)})`);
+      }
+    }
+
     if (reasons.length === 0) continue;
 
     cooldowns.set(key, now);
@@ -87,4 +98,13 @@ function evaluateAlerts(userId, updatesBySymbol) {
   return triggered;
 }
 
-module.exports = { evaluateAlerts };
+/**
+ * Clears alert cooldowns. Used by the demo's "Reset scenario" control
+ * so a fresh run isn't silently suppressed by a cooldown left over
+ * from before the reset.
+ */
+function resetCooldowns() {
+  cooldowns.clear();
+}
+
+module.exports = { evaluateAlerts, resetCooldowns };

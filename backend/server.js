@@ -14,6 +14,9 @@ const {
   ensureAlertFeed,
   applyWatchlistOp,
   applyPortfolioOp,
+  feedView,
+  ensureReferenceLevels,
+  setReferenceLevel,
 } = require("./store");
 const { buildDigest, checkin } = require("./diffEngine");
 const simulator = require("./simulator");
@@ -21,6 +24,7 @@ const { SYMBOLS } = require("./symbols");
 const eventEngine = require("./eventEngine");
 const timelineEngine = require("./timelineEngine");
 const backtestEngine = require("./backtestEngine");
+const chatbot = require("./chatbot");
 
 const PORT = process.env.PORT || 3000;
 const FRONTEND_DIR = path.join(__dirname, "..", "frontend");
@@ -56,20 +60,24 @@ function symbolPublicState(symbol, extra = {}) {
   const st = symbolState.get(symbol);
   if (!st) return null;
   const dormancyMinutes = (Date.now() - st.dormancySince) / 60000;
+  const feed = feedView(symbol);
+  const frozen = feed.frozen || {};
   return {
     symbol,
     name: st.meta.name,
     sector: st.meta.sector,
-    price: Number(st.price.toFixed(2)),
-    score: st.attention.score,
-    band: st.attention.band,
-    confidence: st.attention.confidence ?? null,
-    evidence: st.attention.evidence,
-    activeEvent: activeEventPublic(st),
+    price: Number((frozen.price ?? st.price).toFixed(2)),
+    score: frozen.score ?? st.attention.score,
+    band: frozen.band ?? st.attention.band,
+    confidence: (frozen.confidence !== undefined ? frozen.confidence : st.attention.confidence) ?? null,
+    evidence: frozen.evidence ?? st.attention.evidence,
+    activeEvent: frozen.activeEvent !== undefined ? frozen.activeEvent : activeEventPublic(st),
     dormancyMinutes: Number(dormancyMinutes.toFixed(1)),
-    weekHigh: Number(st.weekHigh.toFixed(2)),
-    weekLow: Number(st.weekLow.toFixed(2)),
-    volume: st.lastVolume,
+    weekHigh: Number((frozen.weekHigh ?? st.weekHigh).toFixed(2)),
+    weekLow: Number((frozen.weekLow ?? st.weekLow).toFixed(2)),
+    volume: frozen.volume ?? st.lastVolume,
+    feedStatus: feed.status,
+    dataAgeSeconds: feed.ageSeconds,
     history: st.history.slice(-40),
     ...extra,
   };
@@ -155,10 +163,39 @@ const server = http.createServer(async (req, res) => {
     seedDefaults(userId);
     const wl = ensureWatchlist(userId);
     const pf = ensurePortfolio(userId);
+    const refLevels = ensureReferenceLevels(userId);
     const items = [...wl]
-      .map((symbol) => symbolPublicState(symbol, { isPortfolio: pf.has(symbol) }))
+      .map((symbol) =>
+        symbolPublicState(symbol, {
+          isPortfolio: pf.has(symbol),
+          referenceLevel: refLevels.get(symbol) ?? null,
+        })
+      )
       .filter(Boolean);
     return sendJSON(res, 200, { userId, items });
+  }
+
+  // ---- GET /api/reflevel/:userId — this user's "alert me at ₹X" levels ----
+  if ((m = pathname.match(/^\/api\/reflevel\/([^/]+)$/)) && req.method === "GET") {
+    const userId = decodeURIComponent(m[1]);
+    return sendJSON(res, 200, { userId, levels: Object.fromEntries(ensureReferenceLevels(userId)) });
+  }
+
+  // ---- POST /api/reflevel/:userId  { symbol, level } ----
+  // level: null/omitted/0 clears the reference level for that symbol.
+  if ((m = pathname.match(/^\/api\/reflevel\/([^/]+)$/)) && req.method === "POST") {
+    const userId = decodeURIComponent(m[1]);
+    const body = await readBody(req);
+    const symbol = (body.symbol || "").toUpperCase();
+    if (!symbolState.has(symbol)) return sendJSON(res, 400, { error: "Unknown symbol" });
+    const rawLevel = body.level;
+    const level = rawLevel === null || rawLevel === undefined || rawLevel === "" ? null : Number(rawLevel);
+    if (level !== null && !Number.isFinite(level)) {
+      return sendJSON(res, 400, { error: "Invalid level" });
+    }
+    const levels = setReferenceLevel(userId, symbol, level);
+    persist();
+    return sendJSON(res, 200, { ok: true, levels });
   }
 
   // ---- POST /api/watchlist/:userId  { symbol, deviceId?, ts? } ----
@@ -309,25 +346,33 @@ const server = http.createServer(async (req, res) => {
     // holding so the frontend can badge it accordingly.
     const requestUserId = url.searchParams.get("userId");
     const isPortfolio = requestUserId ? ensurePortfolio(requestUserId).has(symbol) : false;
+    const referenceLevel = requestUserId ? ensureReferenceLevels(requestUserId).get(symbol) ?? null : null;
+
+    const feed = feedView(symbol);
+    const frozen = feed.frozen || {};
 
     return sendJSON(res, 200, {
       symbol,
       name: st.meta.name,
       sector: st.meta.sector,
-      price: Number(st.price.toFixed(2)),
+      price: Number((frozen.price ?? st.price).toFixed(2)),
 
-      score: st.attention.score,
+      score: frozen.score ?? st.attention.score,
       rawScore: st.attention.rawScore ?? st.attention.score,
-      band: st.attention.band,
-      confidence: st.attention.confidence ?? null,
+      band: frozen.band ?? st.attention.band,
+      confidence: (frozen.confidence !== undefined ? frozen.confidence : st.attention.confidence) ?? null,
 
-      evidence: st.attention.evidence,
+      evidence: frozen.evidence ?? st.attention.evidence,
       components: st.attention.components,
       normalChecklist: st.attention.normalChecklist || [],
 
       context,
-      activeEvent: activeEventPublic(st),
+      activeEvent: frozen.activeEvent !== undefined ? frozen.activeEvent : activeEventPublic(st),
       isPortfolio,
+      referenceLevel,
+
+      feedStatus: feed.status,
+      dataAgeSeconds: feed.ageSeconds,
 
       sectorReturnPct: st.lastSectorReturnPct,
       marketReturnPct: st.lastMarketReturnPct,
@@ -337,9 +382,9 @@ const server = http.createServer(async (req, res) => {
       timeline: timelineEngine.getTimeline(symbol).slice(-12),
 
       history: st.history.slice(-40),
-      weekHigh: Number(st.weekHigh.toFixed(2)),
-      weekLow: Number(st.weekLow.toFixed(2)),
-      volume: st.lastVolume,
+      weekHigh: Number((frozen.weekHigh ?? st.weekHigh).toFixed(2)),
+      weekLow: Number((frozen.weekLow ?? st.weekLow).toFixed(2)),
+      volume: frozen.volume ?? st.lastVolume,
     });
   }
 
@@ -381,6 +426,27 @@ const server = http.createServer(async (req, res) => {
       eventType: typeof body.eventType === "string" ? body.eventType : null,
     });
     return sendJSON(res, 200, { ok: true, symbol });
+  }
+
+  // ---- POST /api/chat/:userId  { message } ----
+  // Small rule-based assistant — reads the same live attention/digest/
+  // alert data the dashboard shows, so it can never say something the
+  // dashboard itself would disagree with.
+  if ((m = pathname.match(/^\/api\/chat\/([^/]+)$/)) && req.method === "POST") {
+    const userId = decodeURIComponent(m[1]);
+    const body = await readBody(req);
+    const result = chatbot.answerQuery(userId, body.message);
+    return sendJSON(res, 200, result);
+  }
+
+  // ---- POST /api/simulate/reset — resets market simulation state
+  // (prices, attention, feed freshness, timeline, backtest, digest
+  // baseline) so a demo can be re-run reliably without restarting the
+  // process. User configuration (watchlist/portfolio/alert rules) is
+  // left untouched. ----
+  if (pathname === "/api/simulate/reset" && req.method === "POST") {
+    simulator.resetScenario();
+    return sendJSON(res, 200, { ok: true });
   }
 
   // ---- static frontend ----

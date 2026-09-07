@@ -1,5 +1,24 @@
 (() => {
-  const USER_ID = "demo-user";
+  const USER_ID_STORAGE_KEY = "radar_user_id";
+
+  function sanitizeUserId(raw) {
+    return String(raw || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]/g, "-")
+      .slice(0, 40);
+  }
+
+  // Real per-user identity: the backend already keys every watchlist,
+  // portfolio, alert-rule set, and reference-level map by userId — the
+  // only thing missing was a way for a person to actually pick one
+  // instead of everyone sharing "demo-user". Persisted in localStorage
+  // so a name survives a reload; switching reloads the page rather
+  // than trying to hot-swap every in-flight subscription and cached
+  // state, which is far simpler and no less demo-reliable.
+  let USER_ID = sanitizeUserId(localStorage.getItem(USER_ID_STORAGE_KEY)) || "demo-user";
+  localStorage.setItem(USER_ID_STORAGE_KEY, USER_ID);
+
   const API = "";
 
   /* ==========================================================
@@ -47,12 +66,25 @@
     NORMAL: "Normal",
   };
 
+  const FEED_LABEL = {
+    FRESH: "Fresh",
+    DELAYED: "Delayed",
+    STALE: "Stale",
+  };
+
+  function feedBadgeHTML(status) {
+    const key = (status || "FRESH").toLowerCase();
+    const label = FEED_LABEL[status] || "Fresh";
+    return `<span class="feed-badge feed-${key}">${label}</span>`;
+  }
+
   /* ==========================================================
      APPLICATION STATE
   ========================================================== */
 
   const items = new Map();
   const portfolioSymbols = new Set();
+  const radarBlipNodes = new Map(); // symbol -> persistent <g> node, kept across ticks so position/score changes animate instead of snapping
   let currentView = "radar";
   let selectedSymbol = null;
   let explainRequestInFlight = false;
@@ -287,19 +319,29 @@
     const blipLayer = svgElement("g");
     blipLayer.setAttribute("id", "blipLayer");
     radarSvg.appendChild(blipLayer);
+    radarBlipNodes.clear(); // the layer itself was just rebuilt — old node references are gone
   }
 
   /* ==========================================================
      RADAR RENDER
+
+     Previously this cleared and rebuilt the entire blip layer every
+     tick, so every <g> was a brand-new DOM node each time — any CSS
+     transition on cx/cy/r never got a chance to run because there was
+     never an "old value -> new value" on the SAME element to animate
+     between. This now keeps one persistent <g data-symbol="X"> per
+     watched symbol and only updates its attributes in place, so a
+     score change genuinely animates (blip motion = changing market
+     state, per the radar spec) instead of snapping to a new position.
   ========================================================== */
 
   function renderRadar() {
     const layer = document.getElementById("blipLayer");
     if (!layer) return;
-    layer.innerHTML = "";
 
     const cx = 300;
     const cy = 300;
+    const seen = new Set();
 
     for (const st of items.values()) {
       const score = safeNumber(st.score);
@@ -309,56 +351,78 @@
       const y = cy + r * Math.sin(angle);
       const color = BAND_COLOR[st.band] || BAND_COLOR.NORMAL;
       const isPortfolio = portfolioSymbols.has(st.symbol);
-
-      const g = svgElement("g");
-      g.setAttribute("class", isPortfolio ? "blip is-portfolio" : "blip");
-      g.dataset.symbol = st.symbol;
-
       const blipRadius = radiusForBlip(score);
+      const showRing = st.band !== "NORMAL";
 
-      if (isPortfolio) {
+      seen.add(st.symbol);
+
+      let g = radarBlipNodes.get(st.symbol);
+      if (!g) {
+        g = svgElement("g");
+        g.dataset.symbol = st.symbol;
+
         const portfolioRing = svgElement("circle");
         portfolioRing.setAttribute("class", "portfolio-ring");
-        portfolioRing.setAttribute("cx", x);
-        portfolioRing.setAttribute("cy", y);
-        portfolioRing.setAttribute("r", blipRadius + 11);
         portfolioRing.setAttribute("fill", "none");
         portfolioRing.setAttribute("stroke", COLORS.violet);
         portfolioRing.setAttribute("stroke-width", "1.4");
         portfolioRing.setAttribute("stroke-dasharray", "3 3");
         portfolioRing.setAttribute("opacity", "0.85");
         g.appendChild(portfolioRing);
-      }
 
-      if (st.band !== "NORMAL") {
         const ring = svgElement("circle");
         ring.setAttribute("class", "ring");
-        ring.setAttribute("cx", x);
-        ring.setAttribute("cy", y);
-        ring.setAttribute("r", blipRadius + 7);
-        ring.setAttribute("stroke", color);
         ring.setAttribute("stroke-width", "1.5");
         g.appendChild(ring);
+
+        const core = svgElement("circle");
+        core.setAttribute("class", "core");
+        g.appendChild(core);
+
+        const label = svgElement("text");
+        label.setAttribute("class", "blip-label");
+        label.setAttribute("text-anchor", "middle");
+        label.textContent = st.symbol;
+        g.appendChild(label);
+
+        g.addEventListener("click", () => showExplain(st.symbol));
+        layer.appendChild(g);
+        radarBlipNodes.set(st.symbol, g);
       }
 
-      const core = svgElement("circle");
-      core.setAttribute("class", "core");
+      g.setAttribute("class", isPortfolio ? "blip is-portfolio" : "blip");
+
+      const portfolioRing = g.querySelector(".portfolio-ring");
+      portfolioRing.style.display = isPortfolio ? "" : "none";
+      portfolioRing.setAttribute("cx", x);
+      portfolioRing.setAttribute("cy", y);
+      portfolioRing.setAttribute("r", blipRadius + 11);
+
+      const ring = g.querySelector(".ring");
+      ring.style.display = showRing ? "" : "none";
+      ring.setAttribute("cx", x);
+      ring.setAttribute("cy", y);
+      ring.setAttribute("r", blipRadius + 7);
+      ring.setAttribute("stroke", color);
+
+      const core = g.querySelector(".core");
       core.setAttribute("cx", x);
       core.setAttribute("cy", y);
       core.setAttribute("r", blipRadius);
       core.setAttribute("fill", color);
-      g.appendChild(core);
 
-      const label = svgElement("text");
-      label.setAttribute("class", "blip-label");
+      const label = g.querySelector(".blip-label");
       label.setAttribute("x", x);
       label.setAttribute("y", y - blipRadius - 7);
-      label.setAttribute("text-anchor", "middle");
-      label.textContent = st.symbol;
-      g.appendChild(label);
+    }
 
-      g.addEventListener("click", () => showExplain(st.symbol));
-      layer.appendChild(g);
+    // Drop blips for symbols no longer being watched (removed from the
+    // watchlist) instead of leaving stale nodes behind.
+    for (const [symbol, g] of radarBlipNodes) {
+      if (!seen.has(symbol)) {
+        g.remove();
+        radarBlipNodes.delete(symbol);
+      }
     }
   }
 
@@ -395,6 +459,7 @@
         <td class="num">${change}</td>
         <td class="num">${safeNumber(st.score)}</td>
         <td><span class="status-pill pill-${st.band}">${BAND_LABEL[st.band] || st.band || "Normal"}</span></td>
+        <td>${feedBadgeHTML(st.feedStatus)}</td>
       `;
 
       tr.addEventListener("click", () => showExplain(st.symbol));
@@ -416,6 +481,7 @@
       li.className = "watch-chip";
       li.innerHTML = `
         ${isPortfolio ? '<span class="chip-portfolio-dot" title="Portfolio holding"></span>' : ""}
+        <span class="chip-feed-dot feed-${(st.feedStatus || "FRESH").toLowerCase()}" title="${FEED_LABEL[st.feedStatus] || "Fresh"} data"></span>
         <span>${st.symbol}</span>
         <button class="remove-btn" title="Remove from watchlist" type="button">×</button>
       `;
@@ -796,12 +862,15 @@
      EXPLAINABILITY
   ========================================================== */
 
-  async function showExplain(symbol) {
+  async function showExplain(symbol, { switchTab = true } = {}) {
     selectedSymbol = symbol;
 
-    // A signal was just opened — make sure the panel showing it
-    // isn't hidden behind the Alerts or Demo tab.
-    switchSidebarTab("monitor");
+    // Only jump to the Monitor tab when the person actually asked to
+    // see a signal (a click). Background refreshes of an already-open
+    // symbol (live ticks, retry-after-inflight) must NOT do this, or
+    // the sidebar yanks itself back to Monitor every couple seconds
+    // even while someone is sitting on the Alerts or Demo tab.
+    if (switchTab) switchSidebarTab("monitor");
 
     if (explainRequestInFlight) {
       explainRefreshPending = true;
@@ -825,11 +894,20 @@
       const explainScore = document.getElementById("explainScore");
       const explainBand = document.getElementById("explainBand");
       const explainPortfolioBadge = document.getElementById("explainPortfolioBadge");
+      const explainFeedBadge = document.getElementById("explainFeedBadge");
 
       if (explainSymbol) explainSymbol.textContent = data.symbol;
       if (explainScore) explainScore.textContent = safeNumber(data.score);
       if (explainBand) explainBand.textContent = BAND_LABEL[data.band] || data.band || "Normal";
       if (explainPortfolioBadge) explainPortfolioBadge.classList.toggle("hidden", !data.isPortfolio);
+      if (explainFeedBadge) {
+        const status = data.feedStatus || "FRESH";
+        explainFeedBadge.className = `feed-badge feed-${status.toLowerCase()}`;
+        explainFeedBadge.textContent =
+          status === "FRESH" ? "Fresh" : `${FEED_LABEL[status] || status} · ${data.dataAgeSeconds ?? 0}s`;
+      }
+
+      renderReferenceLevel(data.symbol, data.referenceLevel);
 
       renderSparkline(data.history);
       renderTimeline(data.timeline);
@@ -909,7 +987,7 @@
       explainRequestInFlight = false;
       if (explainRefreshPending) {
         explainRefreshPending = false;
-        if (selectedSymbol) showExplain(selectedSymbol);
+        if (selectedSymbol) showExplain(selectedSymbol, { switchTab: false });
       }
     }
   }
@@ -1023,8 +1101,17 @@
         }
 
         banner.classList.remove("hidden");
+        const pill = document.getElementById("caughtUpPill");
+        if (pill) pill.classList.add("hidden");
       } else {
         banner.classList.add("hidden");
+        const pill = document.getElementById("caughtUpPill");
+        const pillText = document.getElementById("caughtUpText");
+        if (pillText) {
+          const n = items.size;
+          pillText.textContent = n > 0 ? `${n} reviewed — you're caught up` : "You're caught up";
+        }
+        if (pill) pill.classList.remove("hidden");
       }
     } catch (error) {
       console.error("Digest request failed:", error);
@@ -1183,6 +1270,236 @@
         });
       } catch (error) {
         console.error("Shock request failed:", error);
+      }
+    });
+  }
+
+  /* ==========================================================
+     USER-DEFINED REFERENCE LEVEL ("alert me at ₹X")
+  ========================================================== */
+
+  const reflevelInput = document.getElementById("reflevelInput");
+  const reflevelSetBtn = document.getElementById("reflevelSetBtn");
+  const reflevelClearBtn = document.getElementById("reflevelClearBtn");
+  const reflevelActive = document.getElementById("reflevelActive");
+
+  function renderReferenceLevel(symbol, level) {
+    if (!reflevelInput) return;
+    reflevelInput.dataset.symbol = symbol;
+    if (Number.isFinite(level) && level > 0) {
+      reflevelInput.value = level;
+      if (reflevelActive) {
+        reflevelActive.textContent = `Alerting at ₹${level}`;
+        reflevelActive.classList.remove("hidden");
+      }
+      if (reflevelClearBtn) reflevelClearBtn.classList.remove("hidden");
+    } else {
+      reflevelInput.value = "";
+      if (reflevelActive) reflevelActive.classList.add("hidden");
+      if (reflevelClearBtn) reflevelClearBtn.classList.add("hidden");
+    }
+  }
+
+  async function saveReferenceLevel(level) {
+    const symbol = reflevelInput?.dataset.symbol;
+    if (!symbol) return;
+    try {
+      await api(`/api/reflevel/${encodeURIComponent(USER_ID)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ symbol, level }),
+      });
+      renderReferenceLevel(symbol, level);
+    } catch (error) {
+      console.error("Failed to save reference level:", error);
+    }
+  }
+
+  if (reflevelSetBtn) {
+    reflevelSetBtn.addEventListener("click", () => {
+      const level = Number(reflevelInput.value);
+      if (!Number.isFinite(level) || level <= 0) return;
+      saveReferenceLevel(level);
+    });
+  }
+
+  if (reflevelClearBtn) {
+    reflevelClearBtn.addEventListener("click", () => saveReferenceLevel(null));
+  }
+
+  /* ==========================================================
+     USER IDENTITY SWITCHER
+  ========================================================== */
+
+  const currentUserLabel = document.getElementById("currentUserLabel");
+  if (currentUserLabel) currentUserLabel.textContent = USER_ID;
+
+  const userSwitchBtn = document.getElementById("userSwitchBtn");
+  const userSwitchPopover = document.getElementById("userSwitchPopover");
+  const userSwitchForm = document.getElementById("userSwitchForm");
+  const userSwitchInput = document.getElementById("userSwitchInput");
+
+  function switchUser(rawName) {
+    const next = sanitizeUserId(rawName);
+    if (!next || next === USER_ID) return;
+    localStorage.setItem(USER_ID_STORAGE_KEY, next);
+    // A full reload is the simplest reliable way to reinitialize every
+    // subscription (SSE stream, radar blips, alert feed, chat) under
+    // the new identity rather than trying to hot-swap each one.
+    window.location.reload();
+  }
+
+  if (userSwitchBtn) {
+    userSwitchBtn.addEventListener("click", () => {
+      if (!userSwitchPopover) return;
+      userSwitchPopover.classList.toggle("hidden");
+      if (!userSwitchPopover.classList.contains("hidden") && userSwitchInput) {
+        userSwitchInput.value = "";
+        userSwitchInput.focus();
+      }
+    });
+  }
+
+  document.addEventListener("click", (e) => {
+    if (!userSwitchPopover || userSwitchPopover.classList.contains("hidden")) return;
+    if (userSwitchPopover.contains(e.target) || userSwitchBtn?.contains(e.target)) return;
+    userSwitchPopover.classList.add("hidden");
+  });
+
+  if (userSwitchForm) {
+    userSwitchForm.addEventListener("submit", (e) => {
+      e.preventDefault();
+      switchUser(userSwitchInput?.value);
+    });
+  }
+
+  for (const chip of document.querySelectorAll("#userSwitchPopover [data-user]")) {
+    chip.addEventListener("click", () => switchUser(chip.dataset.user));
+  }
+
+  /* ==========================================================
+     CHAT ASSISTANT
+  ========================================================== */
+
+  const chatFab = document.getElementById("chatFab");
+  const chatPanel = document.getElementById("chatPanel");
+  const chatCloseBtn = document.getElementById("chatCloseBtn");
+  const chatMessages = document.getElementById("chatMessages");
+  const chatForm = document.getElementById("chatForm");
+  const chatInput = document.getElementById("chatInput");
+
+  function chatScrollToBottom() {
+    if (chatMessages) chatMessages.scrollTop = chatMessages.scrollHeight;
+  }
+
+  function addChatMessage(text, sender) {
+    if (!chatMessages) return;
+    const div = document.createElement("div");
+    div.className = sender === "user" ? "chat-msg chat-msg-user" : "chat-msg chat-msg-bot";
+    div.textContent = text;
+    chatMessages.appendChild(div);
+    chatScrollToBottom();
+    return div;
+  }
+
+  function addChatSymbolLink(symbol) {
+    if (!chatMessages) return;
+    const btn = document.createElement("button");
+    btn.className = "chat-msg-link";
+    btn.type = "button";
+    btn.textContent = `View ${symbol} →`;
+    btn.addEventListener("click", () => {
+      showExplain(symbol);
+      if (chatPanel) chatPanel.classList.add("hidden");
+      // On mobile the side pane sits BELOW the radar/list in normal
+      // page flow, so switching tabs alone can leave the explain panel
+      // out of view — bring it on screen instead of just opening it.
+      const explainPanel = document.getElementById("explainPanel");
+      if (explainPanel) {
+        setTimeout(() => explainPanel.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+      }
+    });
+    chatMessages.appendChild(btn);
+    chatScrollToBottom();
+  }
+
+  if (chatFab) {
+    chatFab.addEventListener("click", () => {
+      if (!chatPanel) return;
+      chatPanel.classList.toggle("hidden");
+      if (!chatPanel.classList.contains("hidden") && chatInput) chatInput.focus();
+    });
+  }
+
+  if (chatCloseBtn) {
+    chatCloseBtn.addEventListener("click", () => {
+      if (chatPanel) chatPanel.classList.add("hidden");
+    });
+  }
+
+  if (chatForm) {
+    chatForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const message = (chatInput?.value || "").trim();
+      if (!message) return;
+
+      addChatMessage(message, "user");
+      chatInput.value = "";
+      chatInput.disabled = true;
+
+      const thinking = addChatMessage("…", "bot");
+
+      try {
+        const data = await api(`/api/chat/${encodeURIComponent(USER_ID)}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message }),
+        });
+        if (thinking) thinking.remove();
+        addChatMessage(data.reply || "…", "bot");
+        if (data.symbol) addChatSymbolLink(data.symbol);
+      } catch (error) {
+        console.error("Chat request failed:", error);
+        if (thinking) thinking.remove();
+        addChatMessage("Sorry, I couldn't reach the backend just now.", "bot");
+      } finally {
+        chatInput.disabled = false;
+        chatInput.focus();
+      }
+    });
+  }
+
+  /* ==========================================================
+     RESET SCENARIO
+  ========================================================== */
+
+  const resetScenarioBtn = document.getElementById("resetScenarioBtn");
+  async function refreshEverythingAfterReset() {
+    try {
+      await loadPortfolio();
+      await loadWatchlist();
+      await loadDigest();
+      await loadAlerts();
+      await loadBacktest();
+      if (selectedSymbol) showExplain(selectedSymbol, { switchTab: false });
+    } catch (error) {
+      console.error("Post-reset refresh failed:", error);
+    }
+  }
+
+  if (resetScenarioBtn) {
+    resetScenarioBtn.addEventListener("click", async () => {
+      resetScenarioBtn.disabled = true;
+      const originalText = resetScenarioBtn.textContent;
+      resetScenarioBtn.textContent = "Resetting…";
+      try {
+        await api("/api/simulate/reset", { method: "POST" });
+        await refreshEverythingAfterReset();
+      } catch (error) {
+        console.error("Reset failed:", error);
+      } finally {
+        resetScenarioBtn.disabled = false;
+        resetScenarioBtn.textContent = originalText;
       }
     });
   }
@@ -1594,6 +1911,11 @@
           return;
         }
 
+        if (payload.type === "RESET") {
+          refreshEverythingAfterReset();
+          return;
+        }
+
         if (payload.type !== "TICK") return;
 
         let touchedWatchlist = false;
@@ -1608,7 +1930,7 @@
         if (touchedWatchlist) {
           renderAll();
           if (selectedSymbol && items.has(selectedSymbol)) {
-            showExplain(selectedSymbol);
+            showExplain(selectedSymbol, { switchTab: false });
           }
         }
       } catch (error) {

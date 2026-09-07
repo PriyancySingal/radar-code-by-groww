@@ -90,6 +90,14 @@ function computeAttentionScore(input) {
     dormancyMinutes = 0,
     distanceToHighPct = 999,
     distanceToLowPct = 999,
+    // Volatility-band break (Bollinger-style): z-score of the current
+    // price LEVEL against its own rolling mean/stdDev. Distinct from
+    // priceZ above (which is a RETURN anomaly and decays the instant a
+    // single tick's move normalizes) — this stays engaged for the
+    // whole duration of a sustained move outside the stock's normal
+    // trading range.
+    volatilityBandZ = 0,
+    volatilityBandWarm = false,
     // Whether each rolling statistic has enough samples to be trusted.
     // Used only for the confidence estimate below — the score itself
     // already degrades gracefully during warm-up via RollingStats.zScore().
@@ -270,14 +278,20 @@ function computeAttentionScore(input) {
   // 5. IMPORTANT PRICE LEVELS
   // ============================================================
   //
-  // We use 52-week extremes as contextual signals.
+  // Two independent ways a price level can be "important" — both
+  // draw from the same threshold budget (the strongest one wins,
+  // they don't stack) since they're both answering the same question:
+  // "is this stock at a level that matters?"
   //
-  // Crossing a major level is stronger than merely approaching it.
+  //   a) 52-week extremes — crossing a major level is stronger than
+  //      merely approaching it.
+  //   b) A volatility-band break — price has moved outside its own
+  //      normal trading range, Bollinger-style.
   //
-  let thresholdComponent = 0;
+  let levelFraction = 0;
 
   if (distanceToHighPct <= 0) {
-    thresholdComponent = WEIGHTS.threshold;
+    levelFraction = Math.max(levelFraction, 1);
 
     evidence.push({
       type: "THRESHOLD",
@@ -285,7 +299,7 @@ function computeAttentionScore(input) {
       text: "New 52-week high",
     });
   } else if (distanceToLowPct <= 0) {
-    thresholdComponent = WEIGHTS.threshold;
+    levelFraction = Math.max(levelFraction, 1);
 
     evidence.push({
       type: "THRESHOLD",
@@ -293,8 +307,7 @@ function computeAttentionScore(input) {
       text: "New 52-week low",
     });
   } else if (distanceToHighPct <= 0.01) {
-    thresholdComponent =
-      WEIGHTS.threshold * 0.6;
+    levelFraction = Math.max(levelFraction, 0.6);
 
     evidence.push({
       type: "THRESHOLD",
@@ -303,8 +316,7 @@ function computeAttentionScore(input) {
         "Within 1% of its 52-week high",
     });
   } else if (distanceToLowPct <= 0.01) {
-    thresholdComponent =
-      WEIGHTS.threshold * 0.6;
+    levelFraction = Math.max(levelFraction, 0.6);
 
     evidence.push({
       type: "THRESHOLD",
@@ -313,6 +325,26 @@ function computeAttentionScore(input) {
         "Within 1% of its 52-week low",
     });
   }
+
+  if (volatilityBandWarm && Number.isFinite(volatilityBandZ)) {
+    const absBandZ = Math.abs(volatilityBandZ);
+    if (absBandZ >= 2) {
+      // 2σ -> ~0.6 of the budget, 3σ+ -> the full budget.
+      const bandFraction = clamp(0.6 + (absBandZ - 2) * 0.4, 0.6, 1);
+      levelFraction = Math.max(levelFraction, bandFraction);
+
+      evidence.push({
+        type: "VOLATILITY_BAND",
+        severity: Math.min(100, Math.round(bandFraction * 100)),
+        text:
+          `Trading ${absBandZ.toFixed(1)}σ ` +
+          `${volatilityBandZ >= 0 ? "above" : "below"} ` +
+          `its recent volatility band`,
+      });
+    }
+  }
+
+  const thresholdComponent = levelFraction * WEIGHTS.threshold;
 
   // ============================================================
   // FINAL SCORE
@@ -421,7 +453,7 @@ function buildNormalChecklist(components) {
     },
     {
       ok: components.thresholdComponent < QUIET_THRESHOLD,
-      label: "No threshold breach (52-week high/low)",
+      label: "No threshold or volatility-band breach",
     },
   ];
 }

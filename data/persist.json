@@ -1,1 +1,153 @@
-{}
+{
+  "watchlists": {
+    "demo-user": [
+      "HDFCBANK",
+      "RELIANCE",
+      "MARUTI",
+      "ITC",
+      "ICICIBANK",
+      "DRREDDY",
+      "NTPC",
+      "TATAMOTORS",
+      "TCS"
+    ],
+    "judge-1": [
+      "TCS",
+      "HDFCBANK",
+      "RELIANCE",
+      "MARUTI",
+      "ITC",
+      "SUNPHARMA"
+    ],
+    "judge-2": [
+      "TCS",
+      "HDFCBANK",
+      "RELIANCE",
+      "MARUTI",
+      "ITC",
+      "SUNPHARMA",
+      "HINDUNILVR"
+    ]
+  },
+  "portfolios": {
+    "demo-user": [
+      "RELIANCE",
+      "HDFCBANK",
+      "TATAMOTORS"
+    ],
+    "judge-1": [
+      "RELIANCE",
+      "HDFCBANK"
+    ],
+    "judge-2": [
+      "RELIANCE",
+      "HDFCBANK"
+    ]
+  },
+  "lastSeen": {
+    "demo-user": {}
+  },
+  "alertRules": {
+    "demo-user": {
+      "highAttention": true,
+      "volumeMultiple": 5,
+      "priceMovePct": 4,
+      "sectorDivergencePct": 3
+    },
+    "judge-1": {
+      "highAttention": true,
+      "volumeMultiple": 5,
+      "priceMovePct": 4,
+      "sectorDivergencePct": 3
+    },
+    "judge-2": {
+      "highAttention": true,
+      "volumeMultiple": 5,
+      "priceMovePct": 4,
+      "sectorDivergencePct": 3
+    }
+  },
+  "referenceLevels": {
+    "demo-user": {},
+    "judge-1": {},
+    "judge-2": {}
+  },
+  "watchlistCRDT": {
+    "demo-user": {
+      "ICICIBANK": {
+        "addedAt": {
+          "ts": 1788749629753,
+          "device": "primary"
+        },
+        "removedAt": {
+          "ts": 0,
+          "device": "primary"
+        }
+      },
+      "DRREDDY": {
+        "addedAt": {
+          "ts": 1788750409182,
+          "device": "device-b-simulated"
+        },
+        "removedAt": {
+          "ts": 0,
+          "device": "primary"
+        }
+      },
+      "SUNPHARMA": {
+        "addedAt": null,
+        "removedAt": {
+          "ts": 0,
+          "device": "primary"
+        }
+      },
+      "NTPC": {
+        "addedAt": {
+          "ts": 1788753880117,
+          "device": "primary"
+        },
+        "removedAt": {
+          "ts": 0,
+          "device": "primary"
+        }
+      },
+      "TATAMOTORS": {
+        "addedAt": {
+          "ts": 1788753905926,
+          "device": "primary"
+        },
+        "removedAt": null
+      },
+      "TCS": {
+        "addedAt": {
+          "ts": 1788754281950,
+          "device": "device-b-simulated"
+        },
+        "removedAt": {
+          "ts": 0,
+          "device": "primary"
+        }
+      }
+    },
+    "judge-2": {
+      "HINDUNILVR": {
+        "addedAt": {
+          "ts": 1788754367477,
+          "device": "primary"
+        },
+        "removedAt": null
+      }
+    }
+  },
+  "portfolioCRDT": {
+    "demo-user": {
+      "TATAMOTORS": {
+        "addedAt": {
+          "ts": 1788753905926,
+          "device": "primary"
+        },
+        "removedAt": null
+      }
+    }
+  }
+}

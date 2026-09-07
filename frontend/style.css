@@ -502,6 +502,141 @@ body::after {
 
 
 /* =========================================================
+   CAUGHT-UP PILL — compact calm-state indicator (topbar)
+   ========================================================= */
+
+.caughtup-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  padding: 7px 14px;
+  border-radius: 999px;
+  background: rgba(62, 233, 216, 0.07);
+  border: 1px solid rgba(62, 233, 216, 0.28);
+
+  color: var(--accent-bright);
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+}
+
+.caughtup-pill .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--watch);
+  box-shadow: 0 0 8px var(--watch);
+}
+
+
+/* =========================================================
+   FEED FRESHNESS BADGES
+   ========================================================= */
+
+.feed-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+
+.feed-badge::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.feed-fresh {
+  color: var(--watch);
+  background: rgba(62, 233, 216, 0.08);
+  border: 1px solid rgba(62, 233, 216, 0.25);
+}
+.feed-fresh::before { background: var(--watch); box-shadow: 0 0 6px var(--watch); }
+
+.feed-delayed {
+  color: var(--important);
+  background: rgba(255, 193, 84, 0.08);
+  border: 1px solid rgba(255, 193, 84, 0.28);
+}
+.feed-delayed::before { background: var(--important); box-shadow: 0 0 6px var(--important); }
+
+.feed-stale {
+  color: var(--high);
+  background: rgba(255, 92, 124, 0.08);
+  border: 1px solid rgba(255, 92, 124, 0.28);
+}
+.feed-stale::before { background: var(--high); box-shadow: 0 0 6px var(--high); }
+
+.chip-feed-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-right: 2px;
+}
+.chip-feed-dot.feed-fresh { background: var(--watch); box-shadow: 0 0 5px var(--watch); }
+.chip-feed-dot.feed-delayed { background: var(--important); box-shadow: 0 0 5px var(--important); }
+.chip-feed-dot.feed-stale { background: var(--high); box-shadow: 0 0 5px var(--high); }
+
+
+/* =========================================================
+   USER-DEFINED REFERENCE LEVEL ("alert me at ₹X")
+   ========================================================= */
+
+.reflevel-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0 4px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  flex-wrap: wrap;
+}
+
+.reflevel-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.reflevel-input {
+  width: 100px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--text, #e3ecf8);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.btn-small {
+  padding: 5px 10px;
+  font-size: 11px;
+}
+
+.reflevel-active {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--accent-bright);
+  font-weight: 600;
+}
+
+
+/* =========================================================
    DIGEST / CALM BANNERS
    ========================================================= */
 
@@ -1027,7 +1162,7 @@ body::after {
 
 .blip .core {
   filter: drop-shadow(0 0 6px rgba(70, 220, 200, 0.25));
-  transition: r 0.2s ease, filter 0.2s ease;
+  transition: cx 0.6s var(--ease, ease), cy 0.6s var(--ease, ease), r 0.2s ease, fill 0.3s ease, filter 0.2s ease;
 }
 
 .blip:hover .core {
@@ -1038,6 +1173,11 @@ body::after {
   fill: none;
   opacity: 0.5;
   animation: radarRingPulse 2.5s ease-in-out infinite;
+  transition: cx 0.6s var(--ease, ease), cy 0.6s var(--ease, ease), r 0.2s ease, stroke 0.3s ease;
+}
+
+.blip .portfolio-ring {
+  transition: cx 0.6s var(--ease, ease), cy 0.6s var(--ease, ease);
 }
 
 @keyframes radarRingPulse {
@@ -1056,6 +1196,7 @@ body::after {
   paint-order: stroke;
 
   stroke: #091321;
+  transition: x 0.6s var(--ease, ease), y 0.6s var(--ease, ease);
   stroke-width: 3px;
   stroke-linejoin: round;
 }
@@ -2212,6 +2353,285 @@ select {
   max-width: 320px;
 }
 
+
+/* =========================================================
+   CHAT ASSISTANT
+   ========================================================= */
+
+.chat-widget {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.chat-fab {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  border: 1px solid rgba(62, 233, 216, 0.35);
+  background: linear-gradient(160deg, rgba(62, 233, 216, 0.18), rgba(62, 233, 216, 0.05));
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(62, 233, 216, 0.08) inset;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.chat-fab:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(62, 233, 216, 0.16) inset;
+}
+
+.chat-fab-icon {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.chat-panel {
+  width: 340px;
+  max-width: calc(100vw - 48px);
+  height: 440px;
+  max-height: calc(100vh - 120px);
+  display: flex;
+  flex-direction: column;
+  border-radius: 14px;
+  overflow: hidden;
+  background: rgba(13, 20, 33, 0.97);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(10px);
+}
+
+.chat-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--accent-bright, #3ee9d8);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.chat-close-btn {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.chat-close-btn:hover {
+  color: var(--text, #e3ecf8);
+}
+
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.chat-msg {
+  max-width: 88%;
+  padding: 9px 12px;
+  border-radius: 12px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  white-space: pre-line;
+}
+
+.chat-msg-bot {
+  align-self: flex-start;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  color: var(--text, #e3ecf8);
+  border-bottom-left-radius: 3px;
+}
+
+.chat-msg-user {
+  align-self: flex-end;
+  background: rgba(62, 233, 216, 0.14);
+  border: 1px solid rgba(62, 233, 216, 0.25);
+  color: var(--accent-bright, #3ee9d8);
+  border-bottom-right-radius: 3px;
+}
+
+.chat-msg-link {
+  align-self: flex-start;
+  margin-top: -4px;
+  background: none;
+  border: 1px solid rgba(62, 233, 216, 0.3);
+  color: var(--accent-bright, #3ee9d8);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.chat-msg-link:hover {
+  background: rgba(62, 233, 216, 0.1);
+}
+
+.chat-input-row {
+  display: flex;
+  gap: 8px;
+  padding: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(255, 255, 255, 0.015);
+}
+
+.chat-input-row .btn {
+  width: auto;
+  flex-shrink: 0;
+  height: 34px;
+  padding: 0 14px;
+}
+
+.chat-input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--text, #e3ecf8);
+  font-size: 12.5px;
+}
+
+.chat-input:focus {
+  outline: none;
+  border-color: rgba(62, 233, 216, 0.4);
+}
+
+
+/* =========================================================
+   USER IDENTITY SWITCHER
+   ========================================================= */
+
+.user-switch {
+  position: relative;
+}
+
+.user-switch-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-soft, #d3ddee);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.user-switch-btn:hover {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+.user-switch-icon {
+  font-size: 12px;
+  line-height: 1;
+}
+
+.user-switch-popover {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  width: 280px;
+  z-index: 1001;
+  padding: 14px;
+  border-radius: 12px;
+  background: rgba(13, 20, 33, 0.98);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.5);
+}
+
+.user-switch-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--accent-bright, #3ee9d8);
+  margin-bottom: 6px;
+}
+
+.user-switch-hint {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--muted);
+  margin: 0 0 10px;
+}
+
+#userSwitchForm {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+#userSwitchForm .btn {
+  width: auto;
+  flex-shrink: 0;
+  height: 32px;
+  padding: 0 12px;
+}
+
+.user-switch-input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 9px;
+  border-radius: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--text, #f4f8ff);
+  font-size: 12px;
+}
+
+.user-switch-input:focus {
+  outline: none;
+  border-color: rgba(62, 233, 216, 0.4);
+}
+
+.user-switch-quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip-btn {
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.chip-btn:hover {
+  color: var(--text, #f4f8ff);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
 .toast {
   padding: 12px 14px;
   border-radius: 10px;
@@ -2443,5 +2863,20 @@ select {
 
   .panel {
     padding: 18px;
+  }
+
+  .user-switch-popover {
+    right: -40px;
+    width: calc(100vw - 48px);
+    max-width: 300px;
+  }
+
+  .chat-widget {
+    bottom: 16px;
+    right: 16px;
+  }
+
+  .chat-panel {
+    width: calc(100vw - 32px);
   }
 }

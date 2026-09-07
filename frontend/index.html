@@ -65,6 +65,43 @@
 
       </div>
 
+      <div class="user-switch" id="userSwitch">
+        <button class="user-switch-btn" id="userSwitchBtn" type="button" title="Switch identity">
+          <span class="user-switch-icon">👤</span>
+          <span id="currentUserLabel">demo-user</span>
+        </button>
+
+        <div class="user-switch-popover hidden" id="userSwitchPopover">
+          <div class="user-switch-title">Switch identity</div>
+          <p class="user-switch-hint">
+            Each name gets its own watchlist, portfolio, alerts, and reference
+            levels — open this app as a different name in another
+            tab/device to see real multi-user sync, not just the simulator.
+          </p>
+          <form id="userSwitchForm">
+            <input
+              type="text"
+              id="userSwitchInput"
+              class="user-switch-input"
+              placeholder="e.g. judge-1"
+              autocomplete="off" />
+            <button type="submit" class="btn btn-signal btn-small">Switch</button>
+          </form>
+          <div class="user-switch-quick">
+            <button type="button" class="chip-btn" data-user="demo-user">demo-user</button>
+            <button type="button" class="chip-btn" data-user="judge-1">judge-1</button>
+            <button type="button" class="chip-btn" data-user="judge-2">judge-2</button>
+          </div>
+        </div>
+      </div>
+
+      <span
+        class="caughtup-pill hidden"
+        id="caughtUpPill">
+        <span class="dot"></span>
+        <span id="caughtUpText">You're caught up</span>
+      </span>
+
       <div
         class="conn-status"
         id="connStatus">
@@ -316,6 +353,10 @@
                 Status
               </th>
 
+              <th>
+                Feed
+              </th>
+
             </tr>
 
           </thead>
@@ -540,6 +581,12 @@
                 PORTFOLIO
               </span>
 
+              <span
+                id="explainFeedBadge"
+                class="feed-badge feed-fresh">
+                Fresh
+              </span>
+
             </div>
 
             <span
@@ -547,6 +594,35 @@
               class="score-badge">
             </span>
 
+          </div>
+
+
+          <!-- =================================================
+               USER-DEFINED REFERENCE LEVEL ("alert me at ₹X")
+          ================================================== -->
+
+          <div class="reflevel-row" id="reflevelRow">
+            <span class="reflevel-label">Alert me at ₹</span>
+            <input
+              type="number"
+              id="reflevelInput"
+              class="reflevel-input"
+              placeholder="e.g. 1500"
+              min="0"
+              step="0.01" />
+            <button
+              type="button"
+              class="btn btn-ghost btn-small"
+              id="reflevelSetBtn">
+              Set
+            </button>
+            <button
+              type="button"
+              class="btn btn-ghost btn-small hidden"
+              id="reflevelClearBtn">
+              Clear
+            </button>
+            <span class="reflevel-active hidden" id="reflevelActive"></span>
           </div>
 
 
@@ -823,6 +899,19 @@
 
         </div>
 
+        <div class="demo-row">
+
+          <button
+            class="btn btn-ghost btn-block"
+            id="resetScenarioBtn"
+            type="button">
+
+            ↺ Reset scenario
+
+          </button>
+
+        </div>
+
       </div>
 
 
@@ -885,6 +974,44 @@
     </aside>
 
   </main>
+
+
+  <!-- =========================================================
+       CHAT ASSISTANT
+  ========================================================== -->
+
+  <div class="chat-widget" id="chatWidget">
+
+    <button class="chat-fab" id="chatFab" type="button" title="Ask the RADAR assistant">
+      <span class="chat-fab-icon">💬</span>
+    </button>
+
+    <div class="chat-panel hidden" id="chatPanel">
+
+      <div class="chat-panel-header">
+        <span>RADAR Assistant</span>
+        <button class="chat-close-btn" id="chatCloseBtn" type="button" title="Close">×</button>
+      </div>
+
+      <div class="chat-messages" id="chatMessages">
+        <div class="chat-msg chat-msg-bot">
+          Hey — ask me about a stock, your watchlist, or say "any alerts?" / "am I caught up?"
+        </div>
+      </div>
+
+      <form class="chat-input-row" id="chatForm">
+        <input
+          type="text"
+          id="chatInput"
+          class="chat-input"
+          placeholder="Ask about a stock or your watchlist…"
+          autocomplete="off" />
+        <button type="submit" class="btn btn-signal btn-small" id="chatSendBtn">Send</button>
+      </form>
+
+    </div>
+
+  </div>
 
 
   <!-- =========================================================

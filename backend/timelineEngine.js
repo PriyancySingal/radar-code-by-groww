@@ -29,7 +29,16 @@ function getTimeline(symbol) {
   return timelines.get(symbol) || [];
 }
 
+/**
+ * Clears every symbol's recorded timeline. Used by the demo's
+ * "Reset scenario" control.
+ */
+function reset() {
+  timelines.clear();
+}
+
 module.exports = {
   recordEvent,
   getTimeline,
+  reset,
 };

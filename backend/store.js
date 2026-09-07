@@ -7,6 +7,26 @@ const syncEngine = require("./syncEngine");
 const PERSIST_PATH = path.join(__dirname, "..", "data", "persist.json");
 const HISTORY_LIMIT = 180; // ~ a few minutes of ticks at demo speed, enough for a sparkline
 
+// ---- Feed freshness simulation (doc §10) ----
+//
+// Real market-data feeds occasionally lag behind the true tape — a slow
+// venue, consolidated-feed latency, a dropped packet. We simulate that
+// per-symbol so every value can be honestly tagged Fresh / Delayed /
+// Stale instead of pretending every quote is always instantaneous.
+// `isWarm()` (stats.js) answers a different question — "do we trust the
+// statistics yet?" — this answers "how recent is this print?".
+const FEED_LAG_CHANCE = 0.02; // per symbol, per tick
+const FEED_LAG_TICKS_MIN = 5; // ~10s at the 2s tick rate
+const FEED_LAG_TICKS_MAX = 14; // ~28s
+const FRESH_MS = 5000;
+const STALE_MS = 15000;
+
+function freshnessStatus(ageMs) {
+  if (ageMs < FRESH_MS) return "FRESH";
+  if (ageMs < STALE_MS) return "DELAYED";
+  return "STALE";
+}
+
 // symbolState: symbol -> { meta, price, prevClose, priceStats, volumeStats,
 //                           lastVolume, history[], attention, dormancySince,
 //                           weekHigh, weekLow }
@@ -28,6 +48,14 @@ const alertRules = new Map();
 // userId -> [{ id, symbol, name, band, score, reasons, timestamp }]
 const alertFeed = new Map();
 
+// userId -> Map<symbol, number> — a user's own "alert me at ₹X" price
+// levels (doc §4's "optional user-defined reference level"). Kept
+// per-user rather than folded into the shared Attention Score, since
+// the score is the same for every user watching a symbol while a
+// reference level is personal — it drives that user's own alerts,
+// the same way highAttention/volumeMultiple/etc. already do.
+const referenceLevels = new Map();
+
 const DEFAULT_ALERT_RULES = {
   highAttention: true,
   volumeMultiple: 5,
@@ -44,6 +72,7 @@ function initSymbols() {
       prevClose: meta.basePrice,
       priceStats: new RollingStats(),
       volumeStats: new RollingStats(),
+      priceLevelStats: new RollingStats(20), // tracks price LEVEL (not return) for the volatility-band signal
       lastVolume: 0,
       history: [],
       attention: { score: 0, band: "NORMAL", evidence: [], confidence: 0 },
@@ -57,8 +86,66 @@ function initSymbols() {
       lastMarketReturnPct: 0,
       lastDivergenceType: "NONE",
       lastRecentMovePct: 0,
+
+      // Feed freshness simulation state (see advanceFeed/feedView below)
+      feed: {
+        lagTicksRemaining: 0,
+        lastFreshAt: now,
+        frozen: null,
+      },
     });
   }
+}
+
+// Advances (or starts/ends) a symbol's simulated feed-delay window.
+// `capturePrint()` is only invoked lazily when a new delay window
+// begins, to snapshot "the last confirmed print" the frozen display
+// will hold onto until the feed catches back up.
+function advanceFeed(symbol, capturePrint, now = Date.now()) {
+  const st = symbolState.get(symbol);
+  if (!st) return;
+  const feed = st.feed;
+
+  if (feed.lagTicksRemaining > 0) {
+    feed.lagTicksRemaining -= 1; // still delayed — keep serving `feed.frozen`
+  } else if (Math.random() < FEED_LAG_CHANCE) {
+    feed.frozen = capturePrint(); // last confirmed print before the lag started
+    feed.lagTicksRemaining =
+      FEED_LAG_TICKS_MIN + Math.floor(Math.random() * (FEED_LAG_TICKS_MAX - FEED_LAG_TICKS_MIN + 1));
+    feed.lastFreshAt = now;
+  } else {
+    feed.frozen = null;
+    feed.lastFreshAt = now; // continuously fresh
+  }
+}
+
+// Read-only view of a symbol's current freshness. Safe to call at any
+// time (not just on a tick boundary) since age is computed from the
+// wall clock — used by both the SSE broadcast and plain REST reads.
+function feedView(symbol, now = Date.now()) {
+  const st = symbolState.get(symbol);
+  if (!st) return { status: "FRESH", ageSeconds: 0, frozen: null };
+  const ageMs = Math.max(0, now - st.feed.lastFreshAt);
+  return {
+    status: freshnessStatus(ageMs),
+    ageSeconds: Math.round(ageMs / 1000),
+    frozen: st.feed.lagTicksRemaining > 0 ? st.feed.frozen : null,
+  };
+}
+
+function ensureReferenceLevels(userId) {
+  if (!referenceLevels.has(userId)) referenceLevels.set(userId, new Map());
+  return referenceLevels.get(userId);
+}
+
+function setReferenceLevel(userId, symbol, level) {
+  const map = ensureReferenceLevels(userId);
+  if (level === null || level === undefined || !Number.isFinite(level) || level <= 0) {
+    map.delete(symbol);
+  } else {
+    map.set(symbol, level);
+  }
+  return Object.fromEntries(map);
 }
 
 function ensureAlertRules(userId) {
@@ -154,6 +241,19 @@ function applyPortfolioOp(userId, op) {
   return result;
 }
 
+// Resets the market SIMULATION back to a clean starting point — prices,
+// attention scores, dormancy, feed freshness — so a demo can be re-run
+// reliably without restarting the process (doc §12). User configuration
+// (watchlist, portfolio, alert rules, multi-device sync history) is
+// deliberately left untouched; a scenario reset shouldn't undo a
+// judge's own setup.
+function resetMarketState() {
+  initSymbols();
+  lastSeen.clear();
+  alertFeed.clear();
+  persist();
+}
+
 function persist() {
   const data = {
     watchlists: Object.fromEntries([...watchlists.entries()].map(([u, set]) => [u, [...set]])),
@@ -162,6 +262,9 @@ function persist() {
       [...lastSeen.entries()].map(([u, map]) => [u, Object.fromEntries(map.entries())])
     ),
     alertRules: Object.fromEntries(alertRules.entries()),
+    referenceLevels: Object.fromEntries(
+      [...referenceLevels.entries()].map(([u, map]) => [u, Object.fromEntries(map.entries())])
+    ),
     // Raw CRDT records (add/remove timestamps per symbol per user) so a
     // server restart doesn't lose conflict-resolution history — without
     // this, a delayed op replayed after restart could wrongly "win"
@@ -187,6 +290,9 @@ function load() {
     }
     for (const [u, rules] of Object.entries(data.alertRules || {})) {
       alertRules.set(u, { ...DEFAULT_ALERT_RULES, ...rules });
+    }
+    for (const [u, obj] of Object.entries(data.referenceLevels || {})) {
+      referenceLevels.set(u, new Map(Object.entries(obj).map(([sym, lvl]) => [sym, Number(lvl)])));
     }
     for (const [u, records] of Object.entries(data.watchlistCRDT || {})) {
       syncEngine.loadSnapshot("watchlist", u, records);
@@ -226,4 +332,16 @@ module.exports = {
   ensureAlertFeed,
   pushAlert,
   DEFAULT_ALERT_RULES,
+
+  // User-defined reference levels ("alert me at ₹X")
+  ensureReferenceLevels,
+  setReferenceLevel,
+
+  // Feed freshness simulation
+  advanceFeed,
+  feedView,
+  freshnessStatus,
+
+  // Demo-safe scenario reset
+  resetMarketState,
 };

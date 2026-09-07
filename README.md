@@ -127,7 +127,7 @@ backend/
   diffEngine.js        "Since you last checked" digest
   syncEngine.js         Add-wins CRDT for multi-device watchlist/portfolio conflicts
   store.js              In-memory state + JSON persistence
-  symbols.js           Seed universe (15 symbols, 5 sectors)
+  symbols.js           Seed universe (15 symbols, 6 sectors)
 frontend/
   index.html
   style.css            Dark radar/terminal aesthetic

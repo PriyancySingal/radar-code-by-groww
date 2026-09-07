@@ -18,6 +18,17 @@
 // "Confirmed" means: at least CONFIRM_THRESHOLD_PCT% absolute price
 // move, in either direction, within EVAL_WINDOW_TICKS ticks of the
 // signal firing.
+//
+// Precision is graded across every signal RADAR raised (WORTH_WATCHING
+// and up), not only HIGH_ATTENTION ones. HIGH_ATTENTION requires a
+// score >= 80, which — by design, thanks to score decay — almost never
+// happens organically without a manually triggered shock. Grading only
+// that tier meant this banner could sit at "0 confirmed / — precision"
+// for the entire lifetime of a demo even while the score was actively
+// (and correctly) firing WORTH_WATCHING/IMPORTANT signals the whole
+// time. `highAttentionSignals` is kept as an informational subset count
+// — it's fine (and expected) for that to be 0 until someone triggers a
+// shock — but it no longer gates the headline precision number.
 
 const EVAL_WINDOW_TICKS = 15; // ~30s of simulated time at the 2s tick rate
 const CONFIRM_THRESHOLD_PCT = 1.2;
@@ -35,8 +46,12 @@ let tickCount = 0;
 
 const totals = {
   evaluated: 0,
-  highAttentionSignals: 0,
   confirmedMoves: 0,
+
+  // Informational subset — how many of the evaluated signals were
+  // specifically HIGH_ATTENTION, and how many of those confirmed.
+  highAttentionSignals: 0,
+  highAttentionConfirmed: 0,
 };
 
 /**
@@ -79,29 +94,45 @@ function evaluateTick(getPrice) {
     const confirmed = movePct >= CONFIRM_THRESHOLD_PCT;
 
     totals.evaluated += 1;
+    if (confirmed) totals.confirmedMoves += 1;
 
     if (entry.band === "HIGH_ATTENTION") {
       totals.highAttentionSignals += 1;
-      if (confirmed) totals.confirmedMoves += 1;
+      if (confirmed) totals.highAttentionConfirmed += 1;
     }
   }
 }
 
 function snapshot() {
   const precision =
-    totals.highAttentionSignals > 0
-      ? (totals.confirmedMoves / totals.highAttentionSignals) * 100
-      : null;
+    totals.evaluated > 0 ? (totals.confirmedMoves / totals.evaluated) * 100 : null;
 
   return {
     evaluated: totals.evaluated,
-    highAttentionSignals: totals.highAttentionSignals,
     confirmedMoves: totals.confirmedMoves,
     precision: precision === null ? null : Number(precision.toFixed(1)),
+
+    highAttentionSignals: totals.highAttentionSignals,
+    highAttentionConfirmed: totals.highAttentionConfirmed,
+
     pendingCount: pending.length,
     windowTicks: EVAL_WINDOW_TICKS,
     thresholdPct: CONFIRM_THRESHOLD_PCT,
   };
 }
 
-module.exports = { onBandChange, evaluateTick, snapshot };
+/**
+ * Clears all accumulated validation history. Used by the demo's
+ * "Reset scenario" control so precision stats reflect only the run
+ * that's actually happening in front of a judge, not a prior one.
+ */
+function reset() {
+  pending.length = 0;
+  tickCount = 0;
+  totals.evaluated = 0;
+  totals.confirmedMoves = 0;
+  totals.highAttentionSignals = 0;
+  totals.highAttentionConfirmed = 0;
+}
+
+module.exports = { onBandChange, evaluateTick, snapshot, reset };
